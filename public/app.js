@@ -486,7 +486,7 @@ function statusLine(steps, running) {
 
 function stepsSheet(steps, running) {
   sheet(running ? 'Running' : statusLabel(steps, false), null, h('div', { class: 'steps' },
-    steps.map((s) => [h('div', { class: 'tool' }, s.label || s.tool), s.text ? h('div', { class: 'mono' }, s.text) : null])))
+    steps.map((s) => h('div', { class: 'step' }, s.label || s.tool))))
 }
 
 function approvalCard(a, V) {

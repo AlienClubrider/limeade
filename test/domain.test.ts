@@ -24,7 +24,7 @@ test('one quiet status line per turn', () => {
 })
 
 test('steps are one plain line', () => {
-  assert.deepEqual(stepFor('Bash', { command: 'npm  run\ntest' }), { tool: 'Bash', text: 'npm run test', label: 'Running npm run' })
+  assert.deepEqual(stepFor('Bash', { command: 'npm  run\ntest' }), { tool: 'Bash', text: 'npm run test', label: 'Running a command' })
   assert.deepEqual(stepFor('mcp__tracker__execute', {}), { tool: 'tracker · execute', text: '', label: 'Using tracker' })
   assert.deepEqual(stepFor('Edit', { file_path: '/a/b.ts' }), { tool: 'Edit', text: '/a/b.ts', label: 'Editing b.ts' })
 })
@@ -147,14 +147,18 @@ import { activityLabel } from '../src/domain/chat.ts'
 import { endsWithQuestion, questionLine, readNeeds, reaskPrompt } from '../src/domain/inbox.ts'
 
 test('activity labels read like Claude Code', () => {
-  assert.equal(activityLabel('Bash', { command: 'cd ~/dev/x && npm test' }), 'Running npm test')
+  assert.equal(activityLabel('Bash', { command: 'cd ~/dev/x && npm test', description: 'Run the tests' }), 'Run the tests')
+  assert.equal(activityLabel('Bash', { command: 'i=0; for s in cc-x; do ~/bin/x "$s"; done' }), 'Running a command')
+  assert.equal(activityLabel('Bash', { command: 'ls', description: '  ' }), 'Running a command')
+  assert.equal(activityLabel('Grep', { pattern: 'activityLabel\\(' }), 'Searching files')
+  assert.equal(activityLabel('Glob', { pattern: 'src/**/*.ts' }), 'Finding files')
   assert.equal(activityLabel('Bash', { command: '~/bin/agent-session developer "X" ~/dev p.md' }), 'Starting a worker')
   assert.equal(activityLabel('Bash', { command: '~/bin/agent-session-forget s1' }), 'Stopping a worker')
   assert.equal(activityLabel('Read', { file_path: '/home/h/notes.md' }), 'Reading notes.md')
   assert.equal(activityLabel('Write', { file_path: '/a/app.js' }), 'Editing app.js')
   assert.equal(activityLabel('WebFetch', { url: 'https://preview-48.example.com/x' }), 'Reading preview-48.example.com')
   assert.equal(activityLabel('Skill', { skill: 'catch-up' }), 'Using the catch-up skill')
-  assert.match(activityLabel('Bash', { command: 'x'.repeat(100) }), /…$/)
+  assert.match(activityLabel('Bash', { command: 'ls', description: 'x'.repeat(100) }), /…$/)
 })
 
 test('bell: questions and [needs you] replies need the user', () => {

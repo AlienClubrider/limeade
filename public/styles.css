@@ -231,7 +231,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .efforts { display: flex; margin: 10px 16px 4px; border: 1px solid var(--line2); border-radius: 14px; overflow: hidden }
 .efforts button { flex: 1; padding: 11px 0; font-weight: 500 } .efforts button.on { background: var(--accent); color: #fff }
 .efforts button:disabled { opacity: .4 }
-.sheet .steps { padding: 0 20px } .sheet .steps .tool { color: var(--faint); font-size: 12.5px; margin-top: 10px } .sheet .steps .mono { font-size: 13.5px; word-break: break-all; user-select: text }
+.sheet .steps { padding: 0 20px } .sheet .steps .step { font-size: 14px; margin-top: 10px; line-height: 1.4 }
 
 #toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 30; background: var(--surface2); color: var(--text); padding: 10px 16px; border-radius: 12px; font-size: 14.5px; max-width: 90vw; box-shadow: 0 6px 20px rgba(0,0,0,.3) }
 .dialog { position: fixed; z-index: 22; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(88vw, 400px); background: var(--bg2); border-radius: 18px; padding: 20px }

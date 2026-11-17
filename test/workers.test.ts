@@ -70,10 +70,10 @@ test('a worker\'s "now" comes from the end of its transcript', () => {
     '{"cut line from the middle',
     line({ type: 'assistant', timestamp: 't1', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/a/notes.md' } }] } }),
     line({ type: 'user', message: { content: [{ type: 'tool_result' }] } }),
-    line({ type: 'assistant', timestamp: 't2', message: { content: [{ type: 'text', text: 'ok' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } }),
+    line({ type: 'assistant', timestamp: 't2', message: { content: [{ type: 'text', text: 'ok' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test', description: 'Run the tests' } }] } }),
     line({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'tool_use', name: 'Grep', input: { pattern: 'x' } }] } }),
   ].join('\n')
-  assert.deepEqual(latestActivity(tail), { label: 'Running npm test', at: 't2' })
+  assert.deepEqual(latestActivity(tail), { label: 'Run the tests', at: 't2' })
   assert.deepEqual(latestActivity(line({ type: 'assistant', message: { content: [{ type: 'text', text: 'Done.' }] } })), { label: 'Writing', at: null })
   assert.equal(latestActivity(''), null)
   assert.equal(transcriptPath('/h/.claude', '/home/h/dev/notes-app', 'u1'), '/h/.claude/projects/-home-h-dev-notes-app/u1.jsonl')

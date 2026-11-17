@@ -200,15 +200,16 @@ export function activityLabel(tool: string, input: Record<string, unknown> | und
   if (mcp) return `Using ${mcp[1]}`
   switch (tool) {
     case 'Bash': {
-      // First line only, without a leading "cd somewhere &&": what a person would call the command.
-      const cmd = s('command').split('\n')[0]!.replace(/^\s*cd\s+\S+\s*&&\s*/, '')
+      // Never the command itself: it is plumbing. The tool's own plain-words description says what it does.
+      const cmd = s('command')
       if (/\bagent-session\b(?!-)|\bfleet start\b/.test(cmd)) return 'Starting a worker'
       if (/\bagent-session-forget\b|\bfleet stop\b/.test(cmd)) return 'Stopping a worker'
-      return `Running ${cut(cmd)}`
+      return s('description').trim() ? cut(s('description')) : 'Running a command'
     }
     case 'Read': return `Reading ${base(s('file_path'))}`
     case 'Edit': case 'Write': case 'NotebookEdit': return `Editing ${base(s('file_path') || s('notebook_path'))}`
-    case 'Grep': case 'Glob': return `Searching for ${cut(s('pattern'), 32)}`
+    case 'Grep': return 'Searching files'
+    case 'Glob': return 'Finding files'
     case 'WebFetch': {
       try {
         return `Reading ${new URL(s('url')).host}`
