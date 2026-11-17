@@ -32,8 +32,8 @@ self.addEventListener('push', (e) => {
 
 async function show(m, approval) {
   // He's looking at the chat: it shows there already, so no phone notification. Closed, hidden, or on
-  // another page: notify as usual.
-  const win = await chatInFront(m.chatId)
+  // another page: notify as usual. A test from Settings always shows: it's checking delivery.
+  const win = m.test ? null : await chatInFront(m.chatId)
   if (win) {
     win.postMessage({ type: 'push-inline', push: m })
     return

@@ -2257,7 +2257,10 @@ function setInbox(items) {
 
 /** The user is looking at the chat right now (visible, Assistant page, nothing pushed over it). */
 function lookingAtChat() {
-  return document.visibilityState === 'visible' && S.tab === 'assistant' && (!pageStack.length || wide.matches) && $('#drawer-root').hidden
+  return onScreen.assistantInFront({
+    visible: document.visibilityState === 'visible', tab: S.tab, wide: wide.matches, drawerOpen: !$('#drawer-root').hidden,
+    pages: pageStack.map((p) => ({ full: p.classList.contains('full-page') })),
+  })
 }
 
 /** The chat in front of the user right now: 'assistant', a Chat page chat (its page on top), or null. */
@@ -2314,7 +2317,8 @@ function markSeenOnScreen() {
 // A tap on a notification while Limeade is already open: the service worker hands us the item.
 navigator.serviceWorker?.addEventListener('message', (e) => {
   // The service worker asks before showing a phone notification: is the chat in front of him?
-  if (e.data?.type === 'looking-at-chat?') { e.ports[0]?.postMessage(chatInFront() === (e.data.chatId || 'assistant') && !document.querySelector('#sheet-root > *')); return }
+  // Same as syncWatching: a window behind other apps doesn't count.
+  if (e.data?.type === 'looking-at-chat?') { e.ports[0]?.postMessage(chatInFront() === (e.data.chatId || 'assistant') && !document.querySelector('#sheet-root > *') && document.hasFocus()); return }
   // A tap on a chat's reply notification: open that chat.
   if (e.data?.type === 'open-chat') { setTab('chat'); openChat(e.data.chatId, true); return }
   // A push that arrived while the chat was in front of him: no phone notification; the thread already has it.

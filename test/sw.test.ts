@@ -8,7 +8,13 @@ import vm from 'node:vm'
 
 interface Shown { title: string; tag: string; body: string; renotify: boolean; data: any; actions: { action: string }[]; close(): void }
 
-function worker(opts: { fetchOk?: boolean } = {}) {
+/** A real MessageChannel's open port keeps node running after the tests; this one just hands the reply over. */
+class FakeChannel {
+  port1: { onmessage?: (e: { data: unknown }) => void } = {}
+  port2 = { postMessage: (data: unknown) => queueMicrotask(() => this.port1.onmessage?.({ data })) }
+}
+
+function worker(opts: { fetchOk?: boolean; window?: any } = {}) {
   let shown: Shown[] = []
   const listeners: Record<string, (e: any) => void> = {}
   const opened: string[] = []
@@ -23,12 +29,12 @@ function worker(opts: { fetchOk?: boolean } = {}) {
   const self = {
     registration,
     location: { origin: 'https://lime.test' },
-    clients: { matchAll: async () => [], claim: async () => {}, openWindow: async (u: string) => { opened.push(u) } },
+    clients: { matchAll: async () => (opts.window ? [opts.window] : []), claim: async () => {}, openWindow: async (u: string) => { opened.push(u) } },
     addEventListener: (t: string, fn: (e: any) => void) => { listeners[t] = fn },
     skipWaiting() {},
   }
   const fetch = async () => ({ ok: opts.fetchOk !== false })
-  vm.runInNewContext(readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8'), { self, fetch, URL, MessageChannel, setTimeout, clearTimeout, console })
+  vm.runInNewContext(readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8'), { self, fetch, URL, MessageChannel: FakeChannel, setTimeout, clearTimeout, console })
   async function fire(type: string, e: any) {
     let done: Promise<unknown> = Promise.resolve()
     listeners[type]!({ ...e, waitUntil: (p: Promise<unknown>) => { done = p } })
@@ -111,4 +117,34 @@ test('notifications from before (one per item) are closed so they cannot make a 
   w.legacy('notice-7')
   await w.push(reply(1))
   assert.deepEqual([...w.shown.map((n) => n.tag)], ['limeade'])
+})
+
+/** A visible Limeade window whose page answers "is this chat in front of him?" with `showing`. */
+function windowShowing(showing: boolean) {
+  const posted: any[] = []
+  return {
+    posted,
+    visibilityState: 'visible',
+    postMessage(m: any, ports?: { postMessage(d: unknown): void }[]) {
+      posted.push(m)
+      if (m.type === 'looking-at-chat?') ports?.[0]?.postMessage(showing)
+    },
+  }
+}
+
+test('a push for the chat he is looking at goes into the page, not a notification', async () => {
+  const win = windowShowing(true)
+  const w = worker({ window: win })
+  await w.push(reply(1))
+  assert.equal(w.shown.length, 0)
+  assert.equal(win.posted.at(-1).type, 'push-inline')
+})
+
+test('Send a test always shows a notification, even with the chat on screen', async () => {
+  const win = windowShowing(true)
+  const w = worker({ window: win })
+  await w.push({ ...reply(1), body: 'Test notification', test: true })
+  assert.equal(w.shown.length, 1)
+  assert.equal(w.shown[0]!.body, 'Test notification')
+  assert.equal(win.posted.length, 0, 'the page is not even asked')
 })

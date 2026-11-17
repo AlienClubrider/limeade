@@ -334,7 +334,7 @@ export function createHub(o: HttpOptions): Server {
     }
     if (what === 'test') {
       if (!found) return json(res, 200, { sent: 0 })
-      const sent = await p.out.notice({ seq: 0, at: new Date(now()).toISOString(), kind: 'done', title: 'Limeade', body: 'Test notification: this device will get your updates.', chatId: 'assistant' }, endpoint)
+      const sent = await p.out.notice({ seq: 0, at: new Date(now()).toISOString(), kind: 'done', title: 'Limeade', body: 'Test notification: this device will get your updates.', chatId: 'assistant', test: true }, endpoint)
       return json(res, 200, { sent })
     }
     throw new HubError(404, 'Not found')

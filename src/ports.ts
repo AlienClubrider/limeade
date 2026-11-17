@@ -124,6 +124,8 @@ export interface Notice {
   approvalId?: string
   /** The bell item this notice is about; tapping the notification opens it. */
   inboxId?: string
+  /** Settings' "Send a test": shown even while its chat is on screen, so it really tests delivery. */
+  test?: boolean
 }
 
 export interface NoticeLog {

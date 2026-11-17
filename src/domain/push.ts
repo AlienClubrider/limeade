@@ -50,6 +50,7 @@ export interface PushPayload {
   kind: PushKind
   approvalId?: string
   chatId: string
+  test?: boolean
 }
 
 export function payloadFor(n: Notice): PushPayload {
@@ -63,5 +64,6 @@ export function payloadFor(n: Notice): PushPayload {
     chatId: n.chatId,
     kind: pushKindOf(n),
     ...(n.approvalId ? { approvalId: n.approvalId } : {}),
+    ...(n.test ? { test: true } : {}),
   }
 }

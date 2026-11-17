@@ -43,6 +43,8 @@ test('push rules: toggles per kind; replies count as done; approvals carry their
   // A chat on the Chat page: its notification opens that chat.
   const c = payloadFor({ seq: 4, at: '', kind: 'reply', title: 'Plan', body: 'b', chatId: 'c-1' })
   assert.deepEqual([c.url, c.chatId], ['/?chat=c-1', 'c-1'])
+  assert.equal(c.test, undefined)
+  assert.equal(payloadFor({ seq: 5, at: '', kind: 'done', title: 'Limeade', body: 'Test', chatId: 'assistant', test: true }).test, true)
   assert.equal(isSubscription({ endpoint: 'http://insecure', keys: { p256dh: 'p', auth: 'a' } }), false)
   assert.equal(isSubscription(s.subscription), true)
 })
