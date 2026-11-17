@@ -7,7 +7,7 @@ import type { Mode } from '../domain/chat.ts'
 import type { TurnRequest } from '../ports.ts'
 import type { AcpTurnSpec } from './acp-keeper.ts'
 import { AcpReplyReader as Reader, AcpTurns, approvalFor as approvalWith, packageEntry, type AcpAgent, type AcpTool, type AcpTurnsOptions } from './acp-turns.ts'
-import { endpointEnv, endpointModel, type LocalEndpoint } from './claude-cli.ts'
+import { endpointEnv, endpointModel, endpointSettings, type LocalEndpoint } from './claude-cli.ts'
 
 export { acpPrompt, onPath, optionFor } from './acp-turns.ts'
 
@@ -34,7 +34,7 @@ export function acpMode(mode: Mode): string {
 /** The session/new (and session/resume) params for a turn. Options go to Claude Code as the CLI's flags would. */
 export function sessionParams(
   req: Pick<TurnRequest, 'model' | 'effort' | 'agent' | 'appendSystemPrompt' | 'cwd'>,
-  o: { cwd: string; addDirs?: readonly string[] },
+  o: { cwd: string; addDirs?: readonly string[]; endpoint?: LocalEndpoint },
 ): AcpTurnSpec['session'] {
   return {
     cwd: req.cwd ?? o.cwd,
@@ -43,8 +43,10 @@ export function sessionParams(
     _meta: {
       claudeCode: {
         options: {
-          model: req.model,
+          model: endpointModel(req.model, o.endpoint),
           effort: req.effort,
+          // A local model's endpoint as settings too, so the user's own provider settings can't override it.
+          ...(o.endpoint ? { settings: endpointSettings(req.model, o.endpoint) } : {}),
           // A predicted next prompt per turn: the hub doesn't show it, so don't spend on it.
           promptSuggestions: false,
           ...(req.agent ? { agent: req.agent } : {}),
@@ -82,7 +84,7 @@ function claudeAgent(o: ClaudeAcpOptions): AcpAgent {
     handlePrefix: ACP_HANDLE_PREFIX,
     turn: async (req) => ({
       env: { CLAUDE_CODE_EXECUTABLE: o.claudeBin, ...(o.endpoint ? endpointEnv(req.model, o.endpoint) : {}) },
-      spec: { session: sessionParams({ ...req, model: endpointModel(req.model, o.endpoint) }, { cwd: o.cwd, addDirs: o.addDirs }), modeId: acpMode(req.mode) },
+      spec: { session: sessionParams(req, { cwd: o.cwd, addDirs: o.addDirs, endpoint: o.endpoint }), modeId: acpMode(req.mode) },
       inlinePhotos: !o.endpoint,
     }),
     tool: claudeTool,

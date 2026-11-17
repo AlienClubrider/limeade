@@ -7,4 +7,6 @@ export const KEEPER_FILES = {
   exit: 'exit.json',
   collected: 'collected',
   socket: 'in.sock',
+  /** Settings for a local model's turn (claude-cli.ts). */
+  settings: 'settings.json',
 } as const

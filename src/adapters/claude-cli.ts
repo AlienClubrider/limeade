@@ -59,6 +59,16 @@ export function endpointModel(name: string, endpoint: LocalEndpoint | undefined)
 export function endpointEnv(name: string, endpoint: LocalEndpoint): Record<string, string> {
   const model = endpointModel(name, endpoint)
   return {
+    // Whatever provider the user's own Claude Code settings route to (a gateway, Bedrock, Vertex), and
+    // its keys and headers, stay off a local turn.
+    ANTHROPIC_BEDROCK_BASE_URL: '',
+    ANTHROPIC_VERTEX_BASE_URL: '',
+    CLAUDE_CODE_USE_BEDROCK: '0',
+    CLAUDE_CODE_USE_VERTEX: '0',
+    CLAUDE_CODE_USE_FOUNDRY: '0',
+    ANTHROPIC_API_KEY: '',
+    CLAUDE_CODE_OAUTH_TOKEN: '',
+    ANTHROPIC_CUSTOM_HEADERS: '',
     ANTHROPIC_BASE_URL: endpoint.url,
     ANTHROPIC_AUTH_TOKEN: endpoint.key ?? 'none',
     ANTHROPIC_MODEL: model,
@@ -73,10 +83,22 @@ export function endpointEnv(name: string, endpoint: LocalEndpoint): Record<strin
   }
 }
 
+/**
+ * The same, as Claude Code settings. Claude Code applies the env of the user's and project's settings
+ * over its own environment, so a provider set there (say a gateway in ~/.claude/settings.json) would win
+ * over the environment alone. Settings given with the turn rank above those files, and the empty
+ * apiKeyHelper keeps a configured key script from signing local requests.
+ */
+export function endpointSettings(name: string, endpoint: LocalEndpoint): { apiKeyHelper: string; env: Record<string, string> } {
+  return { apiKeyHelper: '', env: endpointEnv(name, endpoint) }
+}
+
 /** Builds the CLI arguments for one turn. Never bypassPermissions. */
 export function claudeArgs(
   req: Pick<TurnRequest, 'model' | 'effort' | 'mode' | 'sessionId' | 'agent' | 'appendSystemPrompt'>,
   addDirs: readonly string[] = [],
+  /** A settings file for the turn (a local model's endpoint): --settings, above the user's own. */
+  settingsFile?: string,
 ): string[] {
   return [
     '-p',
@@ -92,6 +114,7 @@ export function claudeArgs(
     ...(req.appendSystemPrompt ? ['--append-system-prompt', req.appendSystemPrompt] : []),
     ...(req.sessionId ? ['--resume', req.sessionId] : []),
     ...addDirs.flatMap((d) => ['--add-dir', d]),
+    ...(settingsFile ? ['--settings', settingsFile] : []),
   ]
 }
 
@@ -164,10 +187,12 @@ export class ClaudeCli implements TurnEngine, OneShot {
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       writeFileSync(join(dir, KEEPER_FILES.first), JSON.stringify({ type: 'user', message: { role: 'user', content } }), { mode: 0o600 })
       writeFileSync(join(dir, STARTED), String(Date.now()), { mode: 0o600 })
+      // A file, not inline JSON, so an endpoint key isn't in the process list.
+      if (this.o.endpoint) writeFileSync(join(dir, KEEPER_FILES.settings), JSON.stringify(endpointSettings(req.model, this.o.endpoint)), { mode: 0o600 })
     } catch (err) {
       return Promise.resolve({ text: '', sessionId: req.sessionId, error: `couldn't start the turn (${(err as Error).message})` })
     }
-    const keeper = spawn(process.execPath, [KEEPER, dir, String(this.o.turnTimeoutMs + 120_000), this.o.bin, ...claudeArgs({ ...req, model: endpointModel(req.model, this.o.endpoint) }, this.o.addDirs)], {
+    const keeper = spawn(process.execPath, [KEEPER, dir, String(this.o.turnTimeoutMs + 120_000), this.o.bin, ...claudeArgs({ ...req, model: endpointModel(req.model, this.o.endpoint) }, this.o.addDirs, this.o.endpoint ? join(dir, KEEPER_FILES.settings) : undefined)], {
       cwd: req.cwd ?? this.o.cwd,
       env: { ...process.env, ...this.o.keys?.(), ...this.o.env, ...(this.o.endpoint ? endpointEnv(req.model, this.o.endpoint) : {}), ...req.env },
       stdio: 'ignore',
