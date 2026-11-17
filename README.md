@@ -113,6 +113,9 @@ The `limeade` command is linked into `~/.local/bin`. If that isn't on your `PATH
 | `TRUSTED_HOSTS` | none | Other names the page is reached by (`limeade phone`) |
 | `MACHINE_NAME` | `This computer` | How this computer is named in the app |
 
+Anything else in the file (an agent's API key, a custom provider's key) reaches the agents too. A value set in
+`limeade.env` wins over the same name in the environment the service or shell started with.
+
 Where things are:
 
 | | |

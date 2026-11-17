@@ -118,9 +118,27 @@ function codexNoise(update: any): boolean {
   return typeof update?.messageId !== 'string' && /^Warning: /.test(String(update?.content?.text ?? ''))
 }
 
-function codexFailure(e: { error?: string; stage?: string }): string | undefined {
-  if (/authenticat|not logged in|sign in/i.test(e.error ?? '')) return "Codex isn't signed in on this box: sign in under Settings › Agents, or pick a local model"
-  return undefined
+/** An error's own words, safe to show: anything that looks like a key or token is hidden, and it's kept short. */
+export function codexCause(error: string): string {
+  const text = error
+    .replace(/\bbearer\s+\S+/gi, 'Bearer …')
+    .replace(/[A-Za-z0-9_\-.+/=]{24,}/g, (w) => (/[0-9]/.test(w) && /[A-Za-z]/.test(w) && !w.startsWith('/') ? '…' : w))
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.length > 300 ? `${text.slice(0, 299)}…` : text
+}
+
+/**
+ * A sign-in failure, with what Codex said. With an API key in play (Codex's own, or a custom provider's), the
+ * key was there but refused, so signing in again isn't the fix: the key Limeade starts Codex with is.
+ */
+export function codexFailure(e: { error?: string; stage?: string }, env: NodeJS.ProcessEnv = {}): string | undefined {
+  if (!/authenticat|not logged in|sign in|unauthori[sz]ed|\b401\b/i.test(e.error ?? '')) return undefined
+  const cause = codexCause(e.error ?? '')
+  if (env.CODEX_API_KEY || env.OPENAI_API_KEY) {
+    return `Codex's provider refused its API key (${cause}). Check the key in Settings › Agents or limeade.env (it wins over the service's environment), then restart Limeade`
+  }
+  return `Codex isn't signed in on this box (${cause}): sign in under Settings › Agents, or pick a local model`
 }
 
 function codexAgent(o: CodexAcpOptions): AcpAgent {
@@ -151,7 +169,7 @@ function codexAgent(o: CodexAcpOptions): AcpAgent {
     },
     tool: codexTool,
     noise: codexNoise,
-    failure: codexFailure,
+    failure: (e) => codexFailure(e, { ...process.env, ...o.env }),
   }
 }
 

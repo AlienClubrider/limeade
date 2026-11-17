@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AcpReplyReader, approvalFor, optionFor } from '../src/adapters/acp-turns.ts'
-import { CodexAcp, codexConfig, codexMode, codexTool, type OllamaModel } from '../src/adapters/codex-acp.ts'
+import { CodexAcp, codexCause, codexConfig, codexFailure, codexMode, codexTool, type OllamaModel } from '../src/adapters/codex-acp.ts'
 import type { EngineEvent, TurnRequest } from '../src/ports.ts'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp.mjs', import.meta.url))
@@ -138,4 +138,16 @@ test("the Assistant on Codex runs with its persona and the hub's note as added i
   const none = await codexIn(dir, log, undefined, persona).run(req([], { agent: 'nobody' }))
   assert.match(none.error!, /Codex has no nobody agent on this box/)
   assert.ok(readdirSync(dir).length <= before)
+})
+
+test("a refused key says so, with Codex's own words and no secrets; no key still means sign in", () => {
+  const error = 'unexpected status 401 Unauthorized: Invalid API key sk-proj-AbCdEf1234567890GhIjKl5678 for https://gateway.example.com/v1/responses (Authorization: Bearer abc.def.ghi)'
+  const withKey = codexFailure({ error }, { CODEX_API_KEY: 'x' })!
+  assert.match(withKey, /refused its API key/)
+  assert.match(withKey, /401 Unauthorized/)
+  assert.match(withKey, /\/\/gateway\.example\.com\/v1\/responses/)
+  assert.doesNotMatch(withKey, /sk-proj|AbCdEf1234|abc\.def/)
+  assert.match(codexFailure({ error: 'Authentication required' })!, /^Codex isn't signed in on this box \(Authentication required\): sign in/)
+  assert.equal(codexFailure({ error: 'model not found' }, { CODEX_API_KEY: 'x' }), undefined)
+  assert.equal(codexCause('x'.repeat(400)).length, 300)
 })

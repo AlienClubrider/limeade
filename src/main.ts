@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises'
 import { homedir, totalmem } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expandHome, hubConfig } from './config.ts'
+import { applyEnvFiles, expandHome, hubConfig } from './config.ts'
 import { Conversations } from './app/conversations.ts'
 import { ClaudeCli, type LocalEndpoint } from './adapters/claude-cli.ts'
 import { ClaudeAcp, adapterEntry } from './adapters/claude-acp.ts'
@@ -43,6 +43,14 @@ import type { OllamaMachine } from './domain/local-models.ts'
 import { OllamaDirect } from './adapters/ollama-direct.ts'
 import { HubWorkers } from './app/workers.ts'
 
+// limeade.env wins over a variable the service or shell already had (a stale provider key, say).
+applyEnvFiles(process.env, process.execArgv, (path) => {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+})
 const env = process.env
 const home = homedir()
 const appDir = fileURLToPath(new URL('..', import.meta.url))

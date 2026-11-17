@@ -3,6 +3,7 @@
 // Access, LiteLLM, its own worker scripts) says so in its service's environment. Pure: no I/O.
 
 import { join } from 'node:path'
+import { parseEnv } from 'node:util'
 
 export interface HubConfig {
   port: number
@@ -107,5 +108,30 @@ export function hubConfig(env: Env, home: string, appDir: string): HubConfig {
       : { kind: 'builtin', dir: path(env.FLEET_HOME, join(stateDir, 'fleet')) },
     fleetPollMs: Number(env.FLEET_POLL_MS || 10_000),
     toolboxUrl: env.TOOLBOX_URL || 'http://127.0.0.1:8787',
+  }
+}
+
+/** The settings files Node was started with (--env-file / --env-file-if-exists), in the order given. */
+export function envFilesOf(execArgv: readonly string[]): string[] {
+  const files: string[] = []
+  for (let i = 0; i < execArgv.length; i++) {
+    const m = /^--env-file(?:-if-exists)?(?:=(.*))?$/.exec(execArgv[i]!)
+    if (!m) continue
+    const path = m[1] ?? execArgv[++i]
+    if (path) files.push(path)
+  }
+  return files
+}
+
+/**
+ * Makes Limeade's own settings file win over what the process inherited. Node's --env-file keeps a
+ * variable that is already set, so a stale key in launchd's, systemd's or the shell's environment would
+ * shadow the one in limeade.env; this puts the file's values back. Only the names the file sets change.
+ * `read` returns a file's text, or null when it isn't there.
+ */
+export function applyEnvFiles(env: Record<string, string | undefined>, execArgv: readonly string[], read: (path: string) => string | null): void {
+  for (const path of envFilesOf(execArgv)) {
+    const text = read(path)
+    if (text !== null) Object.assign(env, parseEnv(text))
   }
 }
