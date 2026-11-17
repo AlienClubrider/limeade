@@ -54,3 +54,12 @@ test('live turn: streamed pieces line up by where they go, so none doubles or go
   assert.equal(liveTurn.addPiece('Hello ', 'world', undefined), 'Hello world') // an older hub
   assert.equal(liveTurn.addPiece('Hel', 'world', 6), 'Helworld') // a gap: the next read of the chat fills it
 })
+
+test('live turn: the assistant\'s [quiet] and [needs you] tags never show in the reply so far, even in pieces', () => {
+  assert.equal(liveTurn.untag('[quiet] Yes, found it.'), 'Yes, found it.')
+  assert.equal(liveTurn.untag('[needs you] [quiet] Pick one?'), 'Pick one?')
+  for (const piece of ['[', '[qui', '[QUIET', '[needs y', '[quiet] [nee']) assert.equal(liveTurn.untag(piece), '')
+  assert.equal(liveTurn.untag('Not [quiet] here'), 'Not [quiet] here')
+  assert.equal(liveTurn.untag('[quick note]'), '[quick note]')
+  assert.equal(liveTurn.untag(undefined), '')
+})

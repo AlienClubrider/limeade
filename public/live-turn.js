@@ -30,7 +30,19 @@
     return typeof at === 'number' && at <= have.length ? have.slice(0, at) + text : have + text
   }
 
-  const api = { settle, addPiece }
+  /**
+   * The running reply as shown: without the assistant's leading "[quiet]" / "[needs you]" tags, which the
+   * hub strips from a finished reply (readQuiet, readNeeds); the live text keeps them, since streamed pieces
+   * point into it by position. A tag still arriving in pieces ("[qui") shows as nothing until it is whole.
+   */
+  const TAGS = /^(\s*\[(quiet|needs you)\]\s*)+/i
+  function untag(text) {
+    const rest = (text || '').replace(TAGS, '').trim()
+    const low = rest.toLowerCase()
+    return low && ['[quiet]', '[needs you]'].some((t) => t.startsWith(low)) ? '' : rest
+  }
+
+  const api = { settle, addPiece, untag }
   if (typeof window !== 'undefined') window.liveTurn = api
   if (typeof module !== 'undefined') module.exports = api
 })()

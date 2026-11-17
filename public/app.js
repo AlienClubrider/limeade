@@ -413,8 +413,9 @@ function paintLive(V) {
   if (!(A.chat.busy || Object.keys(A.streaming).length)) return V.live.replaceChildren()
   const ids = Object.keys(A.streaming).length ? Object.keys(A.streaming) : Object.keys(A.liveSteps)
   const id = ids[ids.length - 1]
+  const now = liveTurn.untag(A.streaming[id])
   put(V.live, progressLine(A.liveSteps[id] || []),
-    A.streaming[id] ? h('div', { class: 'reply' }, h('div', { class: 'md reply-card', html: window.md.render(A.streaming[id]) })) : null)
+    now ? h('div', { class: 'reply' }, h('div', { class: 'md reply-card', html: window.md.render(now) })) : null)
 }
 
 /**
