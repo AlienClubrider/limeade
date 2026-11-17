@@ -1,0 +1,4 @@
+#!/bin/sh
+# The bundled `fleet` command (src/cli/fleet.ts), on the PATH of every agent Limeade runs.
+here=$(cd "$(dirname "$0")" && pwd)
+exec "${LIMEADE_NODE:-node}" "$here/../src/cli/fleet.ts" "$@"

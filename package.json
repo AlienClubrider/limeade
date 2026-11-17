@@ -1,0 +1,40 @@
+{
+  "name": "limeade",
+  "private": true,
+  "version": "1.3.0",
+  "type": "module",
+  "description": "Your assistant, its workers and your chats with Claude Code, Codex and local models, in the browser on your own computer",
+  "bin": {
+    "limeade": "bin/limeade.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "public",
+    "defaults",
+    "README.md",
+    "LICENSE",
+    "npm-shrinkwrap.json"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test \"test/*.test.ts\" \"deploy/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "lint:web": "node --check public/app.js && node --check public/md.js && node --check public/clip.js && node --check public/list-width.js && node --check public/live-turn.js && node --check public/follow.js && node --check public/sw.js && node --check bin/limeade.mjs",
+    "check": "npm run typecheck && npm run lint:web && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/web-push": "^3.6.4",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.107.3",
+    "@agentclientprotocol/codex-acp": "2.7.0",
+    "web-push": "3.6.7"
+  }
+}

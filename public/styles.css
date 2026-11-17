@@ -1,0 +1,436 @@
+/* Limeade: Lemonade Mobile's look (its "Nexus" dark navy tokens), Claude-app quiet. */
+@font-face { font-family: 'Inter Tight'; src: url('/fonts/InterTight-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap }
+@font-face { font-family: 'Inter Tight'; src: url('/fonts/InterTight-Medium.ttf') format('truetype'); font-weight: 500; font-display: swap }
+@font-face { font-family: 'Inter Tight'; src: url('/fonts/InterTight-SemiBold.ttf') format('truetype'); font-weight: 600 700; font-display: swap }
+@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/IBMPlexMono-Regular.ttf') format('truetype'); font-weight: 400 500; font-display: swap }
+
+:root, [data-theme=dark] {
+  color-scheme: dark;
+  --bg: #070B16; --bg2: #0C1326; --surface: #111A33; --surface2: #18233F;
+  --bubble: #1E2B4D; /* his messages: clearly lifted off --bg */
+  --card: #10262A; --cardLine: rgba(90,210,175,.16); /* the Assistant's replies: a calm teal, not his navy */
+  --line: rgba(150,170,220,.12); --line2: rgba(150,170,220,.20);
+  --text: #EAF0FB; --muted: #93A0C0; --faint: #5D6A8C;
+  --accent: #4D7CFF; --accent2: #6F9BFF; --accentSoft: rgba(77,124,255,.16);
+  --good: #34D399; --warn: #F4B740; --live: #FF5A52; --danger: #FF6B5E;
+}
+[data-theme=light] {
+  color-scheme: light;
+  --bg: #F4F6FC; --bg2: #FFFFFF; --surface: #FFFFFF; --surface2: #EDF1FA;
+  --bubble: #DCE4F7;
+  --card: #E2F3EA; --cardLine: rgba(30,140,95,.16);
+  --line: rgba(34,48,85,.08); --line2: rgba(34,48,85,.14);
+  --text: #101728; --muted: #55617F; --faint: #8B96B0;
+  --accent: #3F6BF5; --accent2: #2F5BE0; --accentSoft: rgba(63,107,245,.10);
+  --good: #1FA971; --warn: #C98A12; --live: #E5483F; --danger: #D9483C;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 400 16px/1.45 'Inter Tight', system-ui, sans-serif; }
+body { overscroll-behavior: none }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; -webkit-appearance: none; appearance: none }
+input, textarea { font: inherit; color: var(--text) }
+svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round }
+.mono, code, pre { font-family: 'IBM Plex Mono', ui-monospace, monospace }
+[hidden] { display: none !important }
+
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; max-width: 760px; margin: 0 auto }
+.topbar { display: flex; align-items: center; gap: 8px; min-height: 64px; padding: calc(env(safe-area-inset-top) + 12px) 12px 12px; background: var(--bg2); border-bottom: 1px solid var(--line) }
+.menu { position: relative; width: 40px; height: 40px; flex: none; display: grid; place-items: center; color: var(--text); margin-left: -6px }
+.title { flex: 1; margin: 0; font-size: 19px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.conn { color: var(--faint); font-size: 13px; flex: none }
+#top-actions { display: contents }
+.hbtn { width: 40px; height: 40px; flex: none; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--line2); border-radius: 12px; color: var(--muted) }
+.hbtn.accent { color: var(--accent2) }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; display: inline-block }
+.dot.on { background: var(--good) }
+
+#views { flex: 1; position: relative; min-height: 0 }
+.view { position: absolute; inset: 0; display: flex; flex-direction: column }
+.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch }
+/* Phones: no scrollbar flashing on the right edge of scrolling pages. Desktop keeps it to drag. */
+@media (hover: none) {
+  .scroll, .pagebody, .sheet { scrollbar-width: none }
+  .scroll::-webkit-scrollbar, .pagebody::-webkit-scrollbar, .sheet::-webkit-scrollbar { display: none }
+}
+#thread { padding: 12px 18px; display: flex; flex-direction: column }
+#thread > *, #thread > .live-turn > * { flex-shrink: 0 } /* never squash a line when the thread overflows */
+.live-turn { display: contents } /* the running turn's lines sit in the thread like any other */
+
+.badge { position: absolute; top: -5px; right: -10px; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--live); color: #fff; font-size: 11px; font-weight: 600; line-height: 17px; text-align: center; font-style: normal }
+
+/* thread */
+.divider { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 13px; margin: 12px 0 }
+.divider::before, .divider::after { content: ''; flex: 1; border-top: 1px solid var(--line2) }
+.bubble { align-self: flex-end; margin: 4px 0 14px 48px; padding: 11px 16px; background: var(--bubble); border: 1px solid var(--line2); border-radius: 20px; white-space: pre-wrap; word-break: break-word; user-select: text }
+.reply { margin-bottom: 10px }
+.reply-card { width: fit-content; max-width: 100%; padding: 12px 16px; background: var(--card); border: 1px solid var(--cardLine); border-radius: 20px } /* sized to the reply, like his bubbles */
+.reply-card > :first-child { margin-top: 0 } .reply-card > :last-child { margin-bottom: 0 }
+.status-line { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 15px; margin: 2px 0 8px; padding: 4px 0 }
+.status-line svg { width: 16px; height: 16px; color: var(--faint) }
+.reply-actions { display: flex; gap: 14px; margin-top: 6px; color: var(--faint) }
+.reply-actions button { padding: 4px } .reply-actions svg { width: 19px; height: 19px }
+.reply-actions button.on { color: var(--accent2) }
+.event-line { color: var(--faint); font-size: 13.5px; margin: 6px 0 }
+.error-line { color: var(--danger); margin-bottom: 12px }
+.empty { color: var(--faint); text-align: center; margin: auto; padding: 28px; font-size: 16px }
+
+/* rich text */
+.md { word-break: break-word; user-select: text }
+.md p { margin: 0 0 6px } .md ul, .md ol { margin: 4px 0 8px; padding-left: 22px } .md li { margin: 2px 0 }
+.md h1, .md h2, .md h3, .md h4 { margin: 12px 0 4px; line-height: 1.3 } .md h1 { font-size: 21px } .md h2 { font-size: 18px } .md h3, .md h4 { font-size: 16.5px }
+.md a { color: var(--accent2); text-decoration: none }
+.md code { color: var(--text); background: var(--surface2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; font-size: .86em; overflow-wrap: anywhere; box-decoration-break: clone; -webkit-box-decoration-break: clone }
+.md pre { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 10px 0; overflow-x: auto; font-size: 13px; line-height: 1.55 }
+.md pre code { color: var(--text); background: none; border: 0; padding: 0; font-size: inherit; overflow-wrap: normal }
+.md blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line2); color: var(--muted) }
+.md table { border-collapse: collapse; margin: 8px 0; font-size: 14.5px; display: block; overflow-x: auto }
+.md th, .md td { border: 1px solid var(--line2); padding: 5px 8px; text-align: left }
+.md hr { border: 0; border-top: 1px solid var(--line2) }
+
+/* approval card */
+.approval { background: var(--surface); border: 1px solid var(--line2); border-radius: 18px; padding: 12px 14px 8px; margin: 4px 0 12px }
+.approval .who { color: var(--muted); font-size: 14px }
+.approval .cmd { display: flex; gap: 8px; margin: 6px 0 10px; align-items: flex-start }
+.tool-tag { background: var(--accentSoft); color: var(--accent2); border-radius: 6px; padding: 1px 6px; font-size: 12.5px; flex: none }
+.approval .cmd .mono { font-size: 14px; word-break: break-all; user-select: text }
+.opt { display: flex; width: 100%; text-align: left; gap: 0; padding: 11px 12px; border-radius: 12px; margin-bottom: 4px; font-size: 15.5px }
+.opt .n { width: 22px; flex: none; color: var(--faint) }
+.opt.first { background: var(--accentSoft) } .opt.first .n { color: var(--accent2) }
+.opt .mono { color: var(--accent2); font-size: 14.5px }
+.instead { display: flex; gap: 8px; align-items: center; padding-bottom: 6px }
+
+/* composer */
+.composer { margin: 6px 12px calc(10px + env(safe-area-inset-bottom) * 0); padding: 4px 8px 8px 6px; background: var(--surface); border: 1px solid var(--line2); border-radius: 24px }
+.composer textarea { display: block; width: 100%; resize: none; border: 0; outline: 0; background: transparent; padding: 12px 14px 12px; font-size: 18px; max-height: 220px; line-height: 1.3; overflow-y: hidden; scrollbar-width: none }
+.composer textarea::-webkit-scrollbar { display: none }
+.composer textarea::placeholder { color: var(--faint) }
+.composer .row { display: flex; align-items: center; gap: 8px; padding-left: 4px }
+/* one row, always: chips shrink (their names end in "…") rather than wrap or scroll */
+.composer .chips { flex: 1; min-width: 0; display: flex; gap: 8px; overflow: hidden }
+.composer .chips .chip { flex: 0 1 auto; min-width: 0 }
+.composer .chips .chip.where { flex-shrink: 4 }
+/* a phone's Chat row keeps to names: effort and "no files written" are in the sheets and the header */
+@media (max-width: 1023.98px) { .chat-composer .chip .soft { display: none } }
+/* phones: the model chip keeps its short name (effort is in its sheet); the mode chip is never cut */
+.composer .chips .chip.mode { flex-shrink: 0 }
+@media (max-width: 1023.98px) { .composer .chip.model .soft { display: none } .composer .chips .chip { padding: 8px 10px } .composer .chips .chip.model { flex-shrink: 0 } }
+.chip.warn { color: var(--warn); flex-shrink: 0 !important } .chip.warn svg { color: var(--warn) }
+/* text that differs by width (app.js byWidth): phones get the short one */
+@media (max-width: 1023.98px) { .wide-only { display: none !important } }
+@media (min-width: 1024px) { .narrow-only { display: none !important } }
+.composer .plus { width: 36px; height: 36px; margin-left: -2px }
+.composer .tray { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 8px 6px 2px }
+.tray-item { position: relative; flex: none; width: 64px; height: 64px; border-radius: 14px; background: var(--surface2); border: 1px solid var(--line2); overflow: hidden }
+.tray-item img { width: 100%; height: 100%; object-fit: cover; display: block }
+.tray-item:not(.photo) { width: 132px }
+.tray-file { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; height: 100%; box-sizing: border-box; color: var(--muted) }
+.tray-file svg { width: 18px; height: 18px }
+.tray-file .fname { color: var(--text); font-size: 12.5px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all }
+.tray-wait { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.35) }
+.tray-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,.6); color: #fff }
+.tray-x svg { width: 12px; height: 12px; stroke-width: 2.5 }
+.attach-pick > span:first-child { color: var(--muted) }
+.attach-pick svg { width: 24px; height: 24px }
+.sent { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin: 4px 0 14px 48px; max-width: calc(100% - 48px) }
+.sent .bubble { margin: 0 }
+.sent-files { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px }
+.thumb { display: block; width: 132px; height: 132px; border-radius: 16px; overflow: hidden; background: var(--surface2); border: 1px solid var(--line) }
+.sent-files .thumb:only-child { width: auto; height: auto; max-width: min(260px, 100%); max-height: 300px }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: cover }
+.sent-files .thumb:only-child img { max-height: 300px; width: auto; max-width: 100%; height: auto }
+.file-card { display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 12px; max-width: 260px; background: var(--surface); border: 1px solid var(--line2); border-radius: 16px; color: var(--text); text-decoration: none }
+.file-card > span:first-child { color: var(--accent2) } .file-card svg { width: 22px; height: 22px }
+.file-card .fname { display: block; font-size: 14.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px }
+.file-card .fmeta { display: block; color: var(--muted); font-size: 12.5px }
+.chip { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; background: var(--surface2); border-radius: 18px; font-size: 14.5px; font-weight: 500; white-space: nowrap }
+.chip .soft { color: var(--muted); font-weight: 400 }
+.chip svg { width: 16px; height: 16px; color: var(--muted); flex: none }
+.chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.chip > span:has(> svg) { flex: none; overflow: visible } /* icons keep their size; only the name gives way */
+.round { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--surface2); color: var(--muted) }
+.round.fill { background: var(--accent); color: #fff } .round.live { background: var(--accentSoft); color: var(--accent2) }
+
+/* lists */
+.row-item { display: flex; gap: 14px; padding: 13px 18px 13px 20px; border-bottom: 1px solid var(--line); width: 100%; text-align: left }
+.row-item .t { font-size: 16.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 }
+.row-item .s { color: var(--muted); font-size: 14.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+.row-item .ago { color: var(--faint); font-size: 13px; flex: none }
+.row-item .body { flex: 1; min-width: 0 }
+.row-item .line1 { display: flex; gap: 8px; align-items: baseline }
+.state-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 7px; flex: none }
+.st-working { background: var(--accent2) } .st-needs { background: var(--warn) } .st-idle { background: var(--faint) } .st-done { background: var(--good) }
+.note { color: var(--faint); padding: 28px 20px 12px; font-size: 16px }
+.plugin-tag.warn { color: var(--accent2); border-color: var(--accent2) }
+.mirror-banner { background: var(--accentSoft) }
+.mirror-banner .t { color: var(--accent2) }
+.chip.on { background: var(--accentSoft); color: var(--accent2) }
+.plugin-tag { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--muted); border: 1px solid var(--line2); border-radius: 8px; padding: 1px 7px; margin-left: 8px; flex: none }
+.search { margin: 14px 14px 6px; position: relative }
+.search input, .field input { width: 100%; height: 46px; padding: 0 14px 0 42px; background: var(--surface); border: 1px solid var(--line2); border-radius: 14px; outline: 0 }
+.search svg { position: absolute; left: 13px; top: 12px; color: var(--faint) }
+.search input:focus, .field input:focus { border-color: var(--accent) }
+
+/* pages (pushed over the tabs) */
+#pages > .page { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column; max-width: 760px; margin: 0 auto; animation: slide .18s ease-out }
+@keyframes slide { from { transform: translateX(24px); opacity: .6 } to { transform: none; opacity: 1 } }
+.pagebar { display: flex; align-items: center; gap: 6px; padding: calc(env(safe-area-inset-top) + 10px) 12px 10px 6px; background: var(--bg2); border-bottom: 1px solid var(--line); min-height: 64px }
+.pagebar .back { width: 40px; height: 40px; display: grid; place-items: center; color: var(--text) }
+.pagebar .titles { flex: 1; min-width: 0 }
+.pagebar h1 { font-size: 19px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pagebar .sub { color: var(--muted); font-size: 13.5px; display: flex; align-items: center; gap: 6px }
+.pagebody { flex: 1; overflow-y: auto; padding: 18px 20px 28px }
+.desc { color: var(--muted); font-size: 16px; margin-bottom: 14px; line-height: 1.45 }
+.codebox { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 13.5px; white-space: pre-wrap; word-break: break-all; user-select: text }
+.bar { display: flex; gap: 12px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line) }
+.btn { height: 50px; border-radius: 14px; font-size: 16px; font-weight: 600; padding: 0 16px }
+.btn.ghost { background: var(--surface); border: 1px solid var(--line2); flex: 1 }
+.btn.primary { background: var(--accent); color: #fff; flex: 3 }
+.btn.wide { width: 100%; flex: none }
+.btn.danger { color: var(--danger); background: transparent; border: 1px solid var(--line2) }
+.btn:disabled { opacity: .5 }
+.working { display: flex; justify-content: center; align-items: center; gap: 10px; color: var(--muted); padding: 18px }
+.spin { width: 16px; height: 16px; border: 2px solid var(--line2); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite }
+@keyframes spin { to { transform: rotate(360deg) } }
+.handedit { flex: 1; width: 100%; border: 0; outline: 0; resize: none; background: var(--bg); padding: 16px; font: 13.5px/1.5 'IBM Plex Mono', monospace }
+.meta { color: var(--faint); font-size: 14px }
+.report { margin-bottom: 16px } .report .when { color: var(--faint); font-size: 13px } .report .what { font-size: 15.5px; user-select: text }
+.job { font-size: 17px; font-weight: 500; line-height: 1.4; margin-bottom: 6px }
+
+/* settings */
+.section { color: var(--faint); font-size: 12px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; padding: 18px 20px 6px }
+.card { margin: 0 14px; background: var(--surface); border: 1px solid var(--line2); border-radius: 18px; overflow: hidden }
+.card > * + * { border-top: 1px solid var(--line) }
+.cardrow { display: flex; align-items: center; gap: 12px; padding: 14px 16px; min-height: 56px; width: 100%; text-align: left }
+.cardrow .grow { flex: 1; min-width: 0 }
+.cardrow .small { color: var(--muted); font-size: 13.5px }
+.good-for { color: var(--text); font-size: 14px; line-height: 1.35; margin-top: 2px }
+.hint { color: var(--faint); font-size: 13.5px; padding: 8px 20px 0 }
+.switch { width: 46px; height: 28px; border-radius: 14px; background: var(--surface2); position: relative; flex: none; transition: background .15s }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .15s }
+.switch.on { background: var(--accent) } .switch.on::after { transform: translateX(18px) }
+.seg2 { display: flex; border: 1px solid var(--line2); border-radius: 12px; overflow: hidden; margin: 0 14px }
+.seg2 button { flex: 1; padding: 11px 0; font-weight: 500 } .seg2 button.on { background: var(--accent); color: #fff }
+.linkbtn { color: var(--accent2); font-weight: 600 }
+
+/* bottom sheets */
+.scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.45); animation: fade .15s }
+@keyframes fade { from { opacity: 0 } }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-width: 760px; margin: 0 auto; max-height: 88vh; overflow-y: auto; background: var(--bg2); border-radius: 26px 26px 0 0; padding: 10px 0 calc(16px + env(safe-area-inset-bottom)); animation: up .2s ease-out }
+@keyframes up { from { transform: translateY(40px); opacity: .5 } }
+.sheet .handle { width: 36px; height: 4px; border-radius: 2px; background: var(--line2); margin: 4px auto 14px }
+.sheet h2 { font-size: 20px; font-weight: 600; margin: 0 20px } .sheet .subtitle { color: var(--muted); font-size: 14px; margin: 2px 20px 10px }
+.pick { display: flex; align-items: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid var(--line); width: 100%; text-align: left }
+.pick .radio { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--faint); flex: none; display: grid; place-items: center }
+.pick.on .radio { border-color: var(--accent) } .pick.on .radio::after { content: ''; width: 12px; height: 12px; border-radius: 50%; background: var(--accent) }
+.pick .name { font-size: 16.5px; font-weight: 600 } .pick .name.mono { font-weight: 500; font-size: 15.5px }
+.pick .hint2 { color: var(--muted); font-size: 13.5px }
+.pick:disabled { opacity: .45 }
+.default-tag { color: var(--accent2); border: 1px solid var(--accent2); border-radius: 6px; font-size: 12px; padding: 0 6px; margin-left: 8px; font-weight: 400 }
+.mono .default-tag { font-family: 'Inter Tight', system-ui, sans-serif }
+.efforts { display: flex; margin: 10px 16px 4px; border: 1px solid var(--line2); border-radius: 14px; overflow: hidden }
+.efforts button { flex: 1; padding: 11px 0; font-weight: 500 } .efforts button.on { background: var(--accent); color: #fff }
+.efforts button:disabled { opacity: .4 }
+.sheet .steps { padding: 0 20px } .sheet .steps .tool { color: var(--faint); font-size: 12.5px; margin-top: 10px } .sheet .steps .mono { font-size: 13.5px; word-break: break-all; user-select: text }
+
+#toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 30; background: var(--surface2); color: var(--text); padding: 10px 16px; border-radius: 12px; font-size: 14.5px; max-width: 90vw; box-shadow: 0 6px 20px rgba(0,0,0,.3) }
+.dialog { position: fixed; z-index: 22; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(88vw, 400px); background: var(--bg2); border-radius: 18px; padding: 20px }
+.dialog h3 { margin: 0 0 8px; font-size: 19px } .dialog p { color: var(--muted); margin: 0 0 16px }
+.dialog .acts { display: flex; justify-content: flex-end; gap: 18px } .dialog .acts button { color: var(--accent2); font-weight: 600; padding: 6px 2px } .dialog .acts .danger { color: var(--danger) }
+
+/* left drawer (Claude-app style): menu button opens it; tap outside, swipe left, Esc or Back closes it */
+#drawer-root .drawer-scrim { z-index: 15 }
+.drawer { position: fixed; z-index: 16; top: 0; bottom: 0; left: 0; width: min(82vw, 300px); background-color: var(--bg2); color: var(--text); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: calc(env(safe-area-inset-top) + 14px) 10px calc(14px + env(safe-area-inset-bottom)); transition: transform .2s ease-out; animation: drawer-in .2s ease-out }
+@keyframes drawer-in { from { transform: translateX(-100%) } }
+.drawer-head { color: var(--faint); font-size: 13px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; padding: 8px 12px 14px }
+.drawer button { display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px; border-radius: 12px; font-size: 16px; font-weight: 500; color: var(--text); text-align: left }
+.drawer button svg { color: var(--muted) }
+.drawer button span { flex: 1 }
+.drawer button.on { background: var(--accentSoft); color: var(--accent2) } .drawer button.on svg { color: var(--accent2) }
+.drawer .badge { position: static; display: inline-block }
+.drawer-gap { flex: 1 }
+.drawer-head { display: flex; align-items: center; justify-content: space-between }
+.drawer .side-toggle { display: none }
+
+/* the bell (Assistant page): things that need the user */
+.bell { position: relative; width: 40px; height: 40px; flex: none; display: grid; place-items: center; color: var(--muted) }
+.bell .badge { top: 3px; right: 1px }
+.bell-row { display: flex; align-items: flex-start; border-bottom: 1px solid var(--line); transition: transform .15s, opacity .15s; touch-action: pan-y }
+.bell-main { flex: 1; min-width: 0; text-align: left; padding: 12px 8px 12px 20px }
+.bell-kind { color: var(--faint); font-size: 12.5px }
+.bell-title { font-size: 16px; font-weight: 600; line-height: 1.35 }
+.bell-body { color: var(--muted); font-size: 14px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+.bell-x { width: 44px; height: 44px; flex: none; display: grid; place-items: center; color: var(--faint); margin: 6px 8px 0 0 }
+.bell-x svg { width: 18px; height: 18px }
+
+/* opened from the bell: light the message up for a moment */
+.flash { animation: flash 1.8s ease-out }
+@keyframes flash { 0%, 30% { background: var(--accentSoft); box-shadow: 0 0 0 8px var(--accentSoft) } 100% { box-shadow: 0 0 0 8px transparent } }
+.reply, .approval { border-radius: 12px }
+
+/* in-progress text: a soft light sweeping across it, like the Claude apps */
+.shimmer {
+  color: var(--muted);
+  background: linear-gradient(100deg, var(--muted) 0%, var(--muted) 38%, var(--text) 50%, var(--muted) 62%, var(--muted) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  animation: sweep 2.2s linear infinite;
+}
+@keyframes sweep { from { background-position: 100% 0 } to { background-position: -150% 0 } }
+.status-line.live { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
+
+/* workers: job on one line, then what it's doing now */
+.row-item .s.one { -webkit-line-clamp: 1 }
+.row-item .now { font-size: 14px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.row-item .now.quiet { color: var(--faint) }
+.state-dot.pulse { animation: pulse 1.6s ease-in-out infinite }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(111,155,255,.45) } 50% { box-shadow: 0 0 0 5px rgba(111,155,255,0) } }
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer, .state-dot.pulse, .flash { animation: none }
+  .shimmer { -webkit-text-fill-color: var(--muted) }
+  .drawer, #app { transition: none !important }
+}
+
+/* ---------- desktop (wide windows): sidebar, centred reading column, pages in a side panel ----------
+   Everything here is behind min-width: 1024px; the phone layout above is untouched. */
+@media (min-width: 1024px) {
+  :root { --side: 248px; --panel: clamp(420px, 36vw, 600px); --read: 800px }
+
+  /* the drawer is always there, as a sidebar */
+  #drawer-root, #drawer-root[hidden] { display: block !important }
+  #drawer-root .drawer-scrim { display: none }
+  .drawer { width: var(--side); z-index: 5; animation: none; transform: none !important; transition: none; padding: 14px 10px }
+  .drawer-head { padding: 12px 12px 16px }
+  .drawer button { padding: 10px 12px; font-size: 15px }
+  .menu { display: none }
+
+  /* the sidebar folds to an icon rail (toggle, Ctrl/Cmd+B); Chat starts folded, it has its own list */
+  .drawer-head { padding: 4px 4px 12px 12px }
+  .drawer .side-toggle { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border-radius: 10px }
+  .drawer .side-toggle svg { width: 20px; height: 20px }
+  .drawer, #app { transition: width .15s ease-out, left .15s ease-out }
+  body.side-slim { --side: 64px }
+  body.side-slim .drawer { padding: 14px 8px }
+  body.side-slim .drawer-head { justify-content: center; padding: 4px 0 12px }
+  body.side-slim .drawer-head > span, body.side-slim .drawer button > span { display: none }
+  body.side-slim .drawer button { justify-content: center; position: relative; padding: 10px }
+  body.side-slim .drawer .badge { position: absolute; top: 3px; right: 3px; min-width: 9px; height: 9px; padding: 0; font-size: 0 }
+
+  #app { left: var(--side); max-width: none; margin: 0 }
+  .topbar { min-height: 60px; padding: 10px 24px }
+  /* a page (tool, chat) opens beside the list instead of over it */
+  body:has(#pages > .page:not(.full-page)) #app { right: var(--panel) }
+  #pages > .page { left: auto; right: 0; width: var(--panel); max-width: none; margin: 0; border-left: 1px solid var(--line); z-index: 6 }
+  /* Settings, a worker and an MCP, skill or agent are whole pages in the main area, over the list (which keeps its size and scroll) */
+  #pages > .page.full-page { left: var(--side); width: auto; border-left: 0 }
+  .page.full-page .pagebody, .page.full-page .pagefoot, .page.full-page .handedit { width: 100%; max-width: 760px; margin: 0 auto }
+  /* the sidebar shows Settings as the current place */
+  body:has(#pages > .page.settings-page) #drawer [data-tab].on { background: none; color: var(--text) }
+  body:has(#pages > .page.settings-page) #drawer [data-tab].on svg { color: var(--muted) }
+  body:has(#pages > .page.settings-page) #drawer-settings { background: var(--accentSoft); color: var(--accent2) }
+  body:has(#pages > .page.settings-page) #drawer-settings svg { color: var(--accent2) }
+  body:has(#pages > .page.models-page) #drawer [data-tab].on { background: none; color: var(--text) }
+  body:has(#pages > .page.models-page) #drawer [data-tab].on svg { color: var(--muted) }
+  body:has(#pages > .page.models-page) #drawer-models { background: var(--accentSoft); color: var(--accent2) }
+  body:has(#pages > .page.models-page) #drawer-models svg { color: var(--accent2) }
+  .pagebar { min-height: 60px; padding: 10px 16px 10px 8px }
+  .pagebody { padding: 22px 26px 32px }
+  .bar { padding: 12px 18px }
+
+  /* the conversation: a readable column in the middle, composer under it */
+  #thread { padding: 20px max(24px, calc((100% - var(--read)) / 2)) }
+  #assistant-composer { width: 100%; max-width: calc(var(--read) + 24px); margin: 0 auto; padding-bottom: 8px }
+  .composer textarea { font-size: 16.5px }
+  .bubble, .sent { margin-left: 15% }
+  .sent { max-width: 85% }
+  .sent .bubble { margin: 0 }
+
+  /* lists stay a comfortable width */
+  #workers, #toolbox { padding: 8px max(0px, calc((100% - 880px) / 2)) 24px }
+  .row-item { border-radius: 12px; border-bottom-color: transparent; box-shadow: inset 0 -1px 0 var(--line) }
+  .row-item.on { background: var(--accentSoft); box-shadow: none }
+  .row-item.on .t { color: var(--accent2) }
+
+  /* sheets become centred dialogs */
+  .sheet { left: 50%; right: auto; top: 50%; bottom: auto; width: min(560px, 90vw); max-width: none; max-height: 80vh; margin: 0; border-radius: 22px; padding: 18px 0 16px; border: 1px solid var(--line2); transform: translate(-50%, -50%); animation: fade .15s; box-shadow: 0 20px 60px rgba(0,0,0,.35) }
+  .sheet .handle { display: none }
+  #toast { bottom: 28px; left: calc(50% + var(--side) / 2) }
+
+  /* hover and keyboard focus */
+  @media (hover: hover) {
+    .drawer button:not(.on):hover, .row-item:not(.on):hover, .pick:hover, button.cardrow:hover, .opt:not(.first):hover, .bell-main:hover { background: var(--surface) }
+    .hbtn:hover, .round:not(.fill):hover, .bell:hover, .menu:hover, .back:hover, .reply-actions button:hover, .bell-x:hover { color: var(--text) }
+    .btn.primary:hover, .round.fill:hover { filter: brightness(1.08) }
+    .btn.ghost:hover, .chip:hover { border-color: var(--accent) }
+    .linkbtn:hover, .md a:hover { text-decoration: underline }
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px }
+  .composer textarea:focus-visible, .search input:focus-visible, .handedit:focus-visible { outline: 0 }
+  .composer:focus-within { border-color: var(--accent) }
+}
+/* Files dragged over the chat on a computer: a quiet accent outline says "drop here". */
+#view-assistant.drop::after, .chat-page.drop::after { content: ''; position: absolute; inset: 8px; border: 2px dashed var(--accent); border-radius: 20px; background: var(--accentSoft); pointer-events: none; z-index: 5 }
+
+/* Chat page: the list of chats, and a chat opened as a page (beside the list on wide windows) */
+.thread { padding: 12px 18px; display: flex; flex-direction: column }
+.thread > *, .thread > .live-turn > * { flex-shrink: 0 }
+.chat-composer { flex: none }
+.list-resizer { display: none }
+.chat-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--line) }
+.chat-row .row-item { flex: 1; min-width: 0; border-bottom: 0; padding-right: 4px }
+.row-more { width: 48px; flex: none; display: grid; place-items: center; color: var(--faint) }
+.row-more svg, .pagebar .hbtn svg { width: 20px; height: 20px }
+.folder-pick > span:first-child { color: var(--muted) }
+.folder-pick .grow { flex: 1; min-width: 0 }
+.folder-pick .name, .folder-pick .hint2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.folder-pick > span:last-child:not(.grow) svg { width: 18px; height: 18px; color: var(--faint) }
+.sheet .search input { height: 44px }
+@media (min-width: 1024px) {
+  /* a chat is the main thing: the list keeps a column, the chat takes the rest */
+  body:has(#pages > .page.chat-page) { --panel: max(560px, calc(100vw - var(--side) - var(--list, 400px))) }
+  /* the chat's left edge drags the list's width (app.js listResizer) */
+  .list-resizer { display: block; position: absolute; top: 0; bottom: 0; left: -5px; width: 10px; z-index: 7; cursor: col-resize; touch-action: none }
+  .list-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: transparent; transition: background .12s }
+  .list-resizer:hover::after, .list-resizer:focus-visible::after, body.list-resizing .list-resizer::after { background: var(--accent) }
+  .list-resizer:focus-visible { outline: 0 }
+  body.list-resizing, body.list-resizing * { cursor: col-resize !important; user-select: none }
+  .thread { padding: 20px max(24px, calc((100% - var(--read)) / 2)) }
+  .chat-composer { width: 100%; max-width: calc(var(--read) + 24px); margin: 0 auto; padding-bottom: 8px }
+  /* the list is beside it, so a chat needs no back arrow; phones keep it */
+  .chat-page .pagebar .back { display: none }
+  .chat-page .pagebar { padding-left: 24px }
+  #chats { padding: 8px max(0px, calc((100% - 880px) / 2)) 24px }
+  .chat-row { border-bottom: 0; border-radius: 12px; box-shadow: inset 0 -1px 0 var(--line) }
+  .chat-row .row-item { box-shadow: none; background: transparent }
+  .chat-row.on { background: var(--accentSoft); box-shadow: none }
+  @media (hover: hover) { .chat-row:not(.on):hover { background: var(--surface) } .row-more:hover { color: var(--text) } }
+}
+
+/* local models */
+.picker-foot { padding: 14px 20px 4px } .picker-foot .linkbtn { font-size: inherit }
+.machine-head { display: flex; align-items: flex-start; gap: 8px } .machine-head .dot { margin-top: 4px }
+.cardrow .line1 { display: flex; align-items: center; min-width: 0 } .cardrow .line1 .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pagebody.flush { padding-left: 0; padding-right: 0 }
+.iconbtn { width: 40px; height: 40px; display: grid; place-items: center; color: var(--muted); flex: none }
+.iconbtn svg, .cardrow > span svg { width: 20px; height: 20px }
+.progress { height: 6px; border-radius: 3px; background: var(--surface2); margin: 8px 0 6px; overflow: hidden }
+.progress span { display: block; height: 100%; background: var(--accent); transition: width .4s }
+.sizes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px }
+.size { font-family: 'IBM Plex Mono', monospace; font-size: 12px; border-radius: 6px; padding: 1px 7px; border: 1px solid var(--line2); color: var(--muted) }
+.size.big { font-size: 13px; padding: 4px 8px; min-width: 56px; text-align: center; flex: none }
+.size.fit-fits { color: var(--good); border-color: var(--good) }
+.size.fit-tight { color: var(--warn); border-color: var(--warn) }
+.size.fit-too-big { color: var(--faint); border-style: dashed }
+.cardrow:disabled { opacity: .5 }
+
+/* Settings › Agents */
+.efforts.agents button { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2 }
+.agent-note { font-size: 11.5px; font-weight: 500; opacity: .75 }
+a.cardrow { color: inherit; text-decoration: none }
+.agent-code { font-size: 20px; letter-spacing: 1.5px; user-select: all; margin-top: 2px }
+.cardrow.agent-form { flex-direction: column; align-items: stretch; gap: 10px }
+.agent-input { display: flex; gap: 10px }
+.agent-input input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; background: var(--bg); border: 1px solid var(--line2); border-radius: 14px; outline: 0; font-size: 16px }
+.agent-input input:focus { border-color: var(--accent) }
+.agent-input .btn { height: 46px; flex: none }
