@@ -1,14 +1,15 @@
 // HTTP edge, the phone's one front door: key check and limits, chats, the Assistant, approvals,
 // the live stream (SSE) and the Toolbox proxy.
 
-import { createReadStream } from 'node:fs'
+import { createReadStream, promises as fs } from 'node:fs'
+import { extname } from 'node:path'
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse, type Server } from 'node:http'
 import { ASSISTANT_ID } from '../domain/chat.ts'
 import { isFleetMode } from '../domain/fleet.ts'
 import { claudeGroup } from '../domain/models.ts'
 import { FailedAuthBan, SlidingWindowLimit, keyMatches } from '../domain/limits.ts'
 import { HubError, type Conversations } from '../app/conversations.ts'
-import type { AgentSetup, FleetModeStore, HomeFolders, KeyValue, LocalModels, NoticeLog, OneShot, WorkerSource } from '../ports.ts'
+import type { AgentSetup, FleetModeStore, HomeFiles, HomeFolders, KeyValue, LocalModels, NoticeLog, OneShot, WorkerSource } from '../ports.ts'
 import { displayFolder, machines, recentFolders } from '../domain/places.ts'
 import { draftPrompt, isToolKind, parseDraft } from '../domain/toolbox-draft.ts'
 import type { AccessCheck } from '../domain/access.ts'
@@ -48,6 +49,8 @@ export interface HttpOptions {
   workers: WorkerSource
   /** Folders a plain chat can work in (under home on this box). */
   folders?: HomeFolders | null
+  /** Files under home that a reply links to (a diagram, a page), opened from the link. */
+  files?: HomeFiles | null
   defaultFolder?: string
   /** Browser sign-in through Cloudflare Access (Limeade). Scripts keep using the bearer key. */
   access?: AccessCheck | null
@@ -178,6 +181,7 @@ export function createHub(o: HttpOptions): Server {
 
       if (m === 'GET' && route === '/places') return json(res, 200, places())
       if (m === 'GET' && route === '/folders') return json(res, 200, await folders(url))
+      if (m === 'GET' && route.startsWith('/files/')) return await sendHomeFile(res, route)
 
       // Chats and the Assistant ("assistant" is just a chat id with its own rules).
       if (parts[0] === 'chats') {
@@ -392,6 +396,22 @@ export function createHub(o: HttpOptions): Server {
     }
   }
 
+  /** A file under home that a reply links to: /files/<absolute path> or /files/~/<path>, so its own relative links work too. */
+  async function sendHomeFile(res: ServerResponse, route: string) {
+    if (!o.files) throw new HubError(503, 'Files are not set up on this hub')
+    let asked: string
+    try {
+      asked = route.slice('/files/'.length).split('/').map(decodeURIComponent).join('/')
+    } catch {
+      throw new HubError(400, 'Bad path')
+    }
+    const path = await o.files.resolveFile(asked.startsWith('~') ? asked : `/${asked}`)
+    if (!path) throw new HubError(404, 'That file is not inside your home folder, or does not exist')
+    const size = (await fs.stat(path)).size
+    if (size > MAX_FILE_BYTES) throw new HubError(413, 'That file is too big to open here')
+    sendHomeFileBody(res, path, size)
+  }
+
   /** Live events for the app and its notification service. ?since=<notice seq> replays missed notices. */
   function liveStream(url: URL, res: ServerResponse) {
     sseHead(res)
@@ -528,6 +548,32 @@ function sendAttachment(res: ServerResponse, file: StoredAttachment) {
   createReadStream(file.path).on('error', () => res.destroy()).pipe(res)
 }
 
+/** What a linked file opens as in the browser; anything else downloads. */
+const OPENS_AS: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
+}
+
+/**
+ * A linked file. A page may run its own scripts (diagrams usually do), but in a sandbox with no origin of
+ * its own, so it can never act as Limeade or read anything of the hub's.
+ */
+function sendHomeFileBody(res: ServerResponse, path: string, size: number) {
+  const type = OPENS_AS[extname(path).toLowerCase()]
+  const name = path.split('/').at(-1) ?? 'file'
+  res.writeHead(200, {
+    'Content-Type': type ?? 'application/octet-stream',
+    'Content-Length': size,
+    'Content-Disposition': `${type ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads',
+    'Cache-Control': 'no-store',
+  })
+  createReadStream(path).on('error', () => res.destroy()).pipe(res)
+}
+
 /**
  * cloudflared also connects from 127.0.0.1, so a loopback address alone proves nothing: tunnel traffic
  * always carries Cf-* headers, and the Host must be a local name too.
@@ -563,6 +609,7 @@ function pathPart(p: string): string {
 
 /** Chat and approval ids are not secret, but keep logs short. */
 function redact(route: string): string {
+  if (route.startsWith('/files/')) return '/files/…'
   return route.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/gi, ':id')
 }
 

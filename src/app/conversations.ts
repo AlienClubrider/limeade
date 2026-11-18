@@ -25,6 +25,7 @@ const APP_NOTE = [
   "When a reply needs the user (a decision, a question, something to look at), end it with the question; if there is no question but they must look, start the reply with [needs you]. That puts it in the app's bell.",
   "When finished work made something (a file, diagram, page, document or link), lead with it: the TL;DR names it and the next line is where to open it (a link or its full path), then a line or two on what it is and any limitation that matters. Don't retell the workers' progress or the checks they ran; that stays in their history.",
   "If you can't point to it (no link, the file isn't there, the worker didn't say where), say that plainly and what you're doing about it, never just that it's ready.",
+  'Link a file by its full path, like [Open the diagram](/full/path/to/diagram.html): Limeade opens it from that link and shows the path. A link to a bare file name opens nothing.',
 ]
 
 /**

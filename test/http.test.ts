@@ -8,6 +8,10 @@ import type { Chat } from '../src/domain/chat.ts'
 import type { Notice } from '../src/ports.ts'
 import { MachineModels } from '../src/app/machine-models.ts'
 import { RestartGate } from '../src/domain/restart-gate.ts'
+import { HomeFolderTree } from '../src/adapters/home-folders.ts'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const KEY = 'k'.repeat(40)
 
@@ -309,6 +313,35 @@ test('places and folders: machines, recent folders, browsing and search, never o
     assert.equal((await h.call('/folders?path=/etc')).status, 404)
     assert.deepEqual((await (await h.call('/folders?q=dev')).json()).folders.map((f: any) => f.display), ['~/dev'])
     assert.equal((await fetch(`${h.base}/folders`, { headers: { 'cf-connecting-ip': '203.0.113.9' } })).status, 401) // behind the same sign-in as everything else
+  } finally {
+    h.close()
+  }
+})
+
+test('files a reply links to open from home, sandboxed, and nothing outside home does', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hub-files-')))
+  const home = join(root, 'home')
+  mkdirSync(join(home, 'dev/purger'), { recursive: true })
+  writeFileSync(join(home, 'dev/purger/diagram.html'), '<h1>Purger</h1>')
+  writeFileSync(join(home, 'dev/purger/my notes.bin'), 'x')
+  writeFileSync(join(root, 'outside.html'), 'no')
+  const h = await start({ files: new HomeFolderTree(home) })
+  try {
+    // The link md.js makes for [Open Purger diagram](<home>/dev/purger/diagram.html).
+    const r = await h.call(`/files${home}/dev/purger/diagram.html`)
+    assert.equal(r.status, 200)
+    assert.equal(r.headers.get('content-type'), 'text/html; charset=utf-8')
+    assert.match(r.headers.get('content-security-policy')!, /^sandbox allow-scripts/) // never runs as Limeade
+    assert.equal(await r.text(), '<h1>Purger</h1>')
+    assert.equal((await h.call('/files/~/dev/purger/diagram.html')).status, 200)
+    const other = await h.call(`/files${home}/dev/purger/my%20notes.bin`)
+    assert.match(other.headers.get('content-disposition')!, /^attachment/)
+    await other.text()
+    assert.equal((await h.call(`/files${root}/outside.html`)).status, 404)
+    assert.equal((await h.call(`/files${home}/dev/purger`)).status, 404)
+    assert.equal((await h.call('/files/~/%2E%2E/outside.html')).status, 404)
+    assert.equal((await h.call('/files/~/%E0')).status, 400)
+    assert.equal((await fetch(`${h.base}/files/~/dev/purger/diagram.html`, { headers: { 'cf-connecting-ip': '203.0.113.9' } })).status, 401)
   } finally {
     h.close()
   }

@@ -77,6 +77,19 @@ test('home folders: resolves real folders inside home, refuses files, .. and sym
   assert.equal(await f.resolve('~/nope'), null)
 })
 
+test('home files: resolves real files inside home, refuses folders, .. and links that escape', async () => {
+  const { root, home } = tree()
+  writeFileSync(join(root, 'outside/secret.txt'), 'x')
+  symlinkSync(join(root, 'outside/secret.txt'), join(home, 'leak.txt'))
+  const f = new HomeFolderTree(home)
+  assert.equal(await f.resolveFile('~/dev/readme.md'), join(home, 'dev/readme.md'))
+  assert.equal(await f.resolveFile(`${home}/rb/../dev/readme.md`), null)
+  assert.equal(await f.resolveFile('~/dev'), null)
+  assert.equal(await f.resolveFile('~/leak.txt'), null)
+  assert.equal(await f.resolveFile(`${root}/outside/secret.txt`), null)
+  assert.equal(await f.resolveFile('~/escape/secret.txt'), null)
+})
+
 test('home folders: lists folders only, no hidden, clutter or escaping links unless hidden is asked', async () => {
   const { home } = tree()
   const f = new HomeFolderTree(home)

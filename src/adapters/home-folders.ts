@@ -4,9 +4,9 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { folderPath, insideHome, isClutter, matchesSearch } from '../domain/places.ts'
-import type { HomeFolders } from '../ports.ts'
+import type { HomeFiles, HomeFolders } from '../ports.ts'
 
-export class HomeFolderTree implements HomeFolders {
+export class HomeFolderTree implements HomeFolders, HomeFiles {
   readonly home: string
   private realHome: Promise<string>
   private maxDepth: number
@@ -19,14 +19,23 @@ export class HomeFolderTree implements HomeFolders {
     this.maxVisits = opts.maxVisits ?? 4000
   }
 
-  async resolve(path: string): Promise<string | null> {
+  resolve(path: string): Promise<string | null> {
+    return this.real(path, 'folder')
+  }
+
+  resolveFile(path: string): Promise<string | null> {
+    return this.real(path, 'file')
+  }
+
+  private async real(path: string, kind: 'folder' | 'file'): Promise<string | null> {
     const asked = folderPath(this.home, path)
     if (!asked) return null
     try {
       const real = await fs.realpath(asked)
       const home = await this.realHome
       if (!insideHome(home, real)) return null
-      if (!(await fs.stat(real)).isDirectory()) return null
+      const stat = await fs.stat(real)
+      if (kind === 'folder' ? !stat.isDirectory() : !stat.isFile()) return null
       // Keep the user's spelling of home (it may itself be a link) so paths read as ~/…
       return home === this.home ? real : join(this.home, real.slice(home.length))
     } catch {

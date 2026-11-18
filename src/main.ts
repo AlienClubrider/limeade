@@ -335,6 +335,7 @@ createHub({
   agents,
   settings,
   folders: homeFolders,
+  files: homeFolders,
   defaultFolder: workDir,
   oneShot: { claude: claudeCli, local: localModels },
   workers,

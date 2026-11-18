@@ -9,14 +9,31 @@
     s = s.replace(/`([^`]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`)
     s = esc(s)
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, href) => {
-      const h = href.replace(/&amp;/g, '&')
-      return /^(https?:|mailto:)/i.test(h) ? `<a href="${esc(h)}" target="_blank" rel="noopener">${text}</a>` : text
+      const h = href.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+      if (/^(https?:|mailto:)/i.test(h)) return `<a href="${esc(h)}" target="_blank" rel="noopener">${text}</a>`
+      // A file the agent made (a diagram, a page): opened through the hub, with its path to copy as well.
+      const path = localPath(h)
+      // (The paths go in as code spans, so the bold and italic rules below leave their _ and * alone.)
+      const code = (c) => `\u0000${codes.push(c) - 1}\u0000`
+      if (path) return `<a href="${esc(fileHref(path))}" target="_blank" rel="noopener">${text}</a> ${code(path)}`
+      // Anything else can't be opened here, so show where it pointed instead of leaving bare text.
+      return `${text} ${code(h)}`
     })
     s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+[^\s<).,;:!?'"])/g, (m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener">${url}</a>`)
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>')
     s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>')
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`)
   }
+
+  /** "/abs/file", "~/file" or "file:///abs/file" as a path, else null. */
+  function localPath(href) {
+    let p = href.replace(/^file:\/\/(localhost)?(?=\/)/i, '')
+    try { p = decodeURIComponent(p) } catch {}
+    return /^(\/|~\/)[^/]/.test(p) && !/[?#]/.test(p) ? p : null
+  }
+
+  /** Where the hub serves a file under home; each part encoded, so the file's own relative links still work. */
+  const fileHref = (path) => '/files' + (path.startsWith('~') ? '/' : '') + path.split('/').map((p) => encodeURIComponent(p).replace(/[_*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join('/')
 
   function render(src) {
     const lines = String(src ?? '').replace(/\r\n?/g, '\n').split('\n')

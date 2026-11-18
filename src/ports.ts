@@ -192,6 +192,12 @@ export interface HomeFolders {
   search(query: string, limit?: number): Promise<string[]>
 }
 
+/** Files inside home, for opening what an agent made (a diagram, a page) from a link in its reply. */
+export interface HomeFiles {
+  /** The real path of an existing file inside home (symlinks followed), or null. */
+  resolveFile(path: string): Promise<string | null>
+}
+
 /** Ollama on one of the user's machines. */
 export interface OllamaApi {
   /** Installed models, or null when the machine doesn't answer. */
