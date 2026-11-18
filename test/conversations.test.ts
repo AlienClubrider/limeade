@@ -214,7 +214,7 @@ test('approvals are answered from the app and expire with their turn', async () 
   c.answer(pending!.id, 'always')
   await idle(c, 'assistant')
   assert.equal(answered, 'always')
-  assert.deepEqual(c.get('assistant').messages.at(-1)!.steps, [{ tool: 'Bash', text: 'npm test' }])
+  assert.deepEqual(c.get('assistant').messages.at(-1)!.steps!.map(({ tool, text }) => ({ tool, text })), [{ tool: 'Bash', text: 'npm test' }])
   assert.throws(() => c.answer(pending!.id, 'yes'), /already/)
 })
 
@@ -626,6 +626,51 @@ test('reading a chat mid-turn includes what the turn has said so far', async () 
   assert.equal(c.get('assistant').live, undefined)
 })
 
+test('a note written between tool calls is placed before its step, timed, and never buzzes the phone', async () => {
+  let finish!: (r: TurnResult) => void
+  const claude = new FakeEngine((r) => new Promise((resolve) => {
+    r.onEvent({ type: 'text', text: 'Now move the other five lectures into the course folder.' })
+    r.onEvent({ type: 'step', step: { tool: 'mcp__obsidian__vault_move', text: 'lecture-2.md' } })
+    finish = resolve
+  }))
+  const { c, notices } = setup({ claude })
+  const seen: string[] = []
+  c.on('step', (d: { step: { at: number; since: string } }) => seen.push(`${d.step.at} ${d.step.since}`))
+  await c.send('assistant', 'tidy the lectures')
+  while (!claude.calls.length || !seen.length) await new Promise((r) => setTimeout(r, 5))
+  const step = c.get('assistant').live!.steps[0]!
+  assert.equal(step.at, 'Now move the other five lectures into the course folder.'.length)
+  assert.ok(step.since && !Number.isNaN(Date.parse(step.since)))
+  assert.equal(seen.length, 1)
+  assert.equal(notices.items.length, 0, 'no notification while the turn runs')
+  finish({ text: 'All six lectures are in the course folder.', sessionId: 's' })
+  await idle(c, 'assistant')
+  assert.deepEqual(notices.items.map((n) => [n.kind, n.body]), [['reply', 'All six lectures are in the course folder.']])
+})
+
+test('a turn with several progress updates lands them apart from its reply, which says its last words once', async () => {
+  let said = ''
+  const claude = new FakeEngine(async (r) => {
+    const say = (text: string) => { said += text; r.onEvent({ type: 'text', text }) }
+    say('[quiet] Started a worker on the diagram.')
+    r.onEvent({ type: 'step', step: { tool: 'Bash', text: 'fleet start diagram' } })
+    say('\n\nThe worker is halfway.')
+    r.onEvent({ type: 'step', step: { tool: 'Bash', text: 'fleet show diagram' } })
+    say('\n\nDone: open diagram.svg in Files.')
+    r.onEvent({ type: 'step', step: { tool: 'Bash', text: 'fleet ack' } })
+    // It ended on a step with no words after it: the engine hands back all it streamed.
+    return { text: said, sessionId: 's' }
+  })
+  const { c, notices } = setup({ claude })
+  await c.send('assistant', 'draw the diagram')
+  await idle(c, 'assistant')
+  const reply = c.get('assistant').messages.at(-1)!
+  assert.equal(reply.text, 'Done: open diagram.svg in Files.')
+  assert.deepEqual(reply.notes, [{ text: 'Started a worker on the diagram.', before: 0 }, { text: 'The worker is halfway.', before: 1 }])
+  assert.equal(reply.steps!.length, 3)
+  assert.deepEqual(notices.items.map((n) => n.body), ['Done: open diagram.svg in Files.'])
+})
+
 test('a chat on Codex runs its own models in Codex and local models in Codex too', async () => {
   const codex = new FakeEngine(async (r) => ({ text: `codex: ${r.prompt}`, sessionId: 'thread-1' }))
   const codexLocal = new FakeEngine(async (r) => ({ text: `codex local: ${r.prompt}`, sessionId: 'thread-1' }))
@@ -871,7 +916,7 @@ class SteerEngine extends FakeEngine {
     }))
   }
   async reattach(_handle: string, r: TurnRequest) {
-    r.onEvent({ type: 'resumed', text: 'Found the first part. Now the second.', steps: [{ tool: 'Bash', text: 'ls' }, { tool: 'Read', text: 'b.md' }] })
+    r.onEvent({ type: 'resumed', text: 'Found the first part. Now the second.', steps: [{ tool: 'Bash', text: 'ls' }, { tool: 'Read', text: 'b.md', at: 21 }] })
     r.onEvent({ type: 'text', text: ' Done.' })
     return { text: 'Done.', sessionId: 's' }
   }
@@ -989,7 +1034,7 @@ test('a steered turn picked up after a hub restart shows and lands only what cam
     ['assistant', 'Now the second. Done.'],
   ])
   assert.equal(msgs[3]!.id, live.replyId)
-  assert.deepEqual(msgs[3]!.steps?.map((s) => s.tool), ['Read'])
+  assert.deepEqual(msgs[3]!.steps?.map((s) => [s.tool, s.at]), [['Read', 0]])
   assert.equal(events[0]![1].text, ' Now the second.')
 })
 

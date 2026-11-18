@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { afterCut, cliPermissionMode, dropTags, notificationText, readQuiet, replySlot, statusLine, stepFor, titleFrom, cleanTitle } from '../src/domain/chat.ts'
+import { afterCut, turnParts, cliPermissionMode, dropTags, notificationText, readQuiet, replySlot, statusLine, stepFor, titleFrom, cleanTitle } from '../src/domain/chat.ts'
 import { eventMarker, eventsToWake, noticeKindFor, noticeTitle, parseEventLine, parseFleetMode, workerName } from '../src/domain/fleet.ts'
 import { claudeGroup, claudeLabel, historyFor, LOCAL_HISTORY, localGroups, localLabel, parseModelId } from '../src/domain/models.ts'
 import { alwaysLabel, claudeArgs, endpointEnv } from '../src/adapters/claude-cli.ts'
@@ -280,11 +280,26 @@ test('replySlot: a running turn\'s reply goes above the messages still waiting, 
   assert.equal(replySlot([m('a')], ['gone']), 1)
 })
 
-test('after a message he sent into a turn, its reply is the text and steps from the cut on', () => {
-  const steps = [{ tool: 'Bash', text: 'ls' }, { tool: 'Read', text: 'a.md' }, { tool: 'Edit', text: 'b.md' }]
+test('after a message he sent into a turn, its reply is the text and steps from the cut on, placed in that part', () => {
+  const steps = [{ tool: 'Bash', text: 'ls', at: 5 }, { tool: 'Read', text: 'a.md', at: 12 }, { tool: 'Edit', text: 'b.md' }]
   assert.deepEqual(afterCut('Done. Next bit.', steps, { text: 6, steps: 1 }), {
     text: 'Next bit.',
-    steps: [{ tool: 'Read', text: 'a.md' }, { tool: 'Edit', text: 'b.md' }],
+    steps: [{ tool: 'Read', text: 'a.md', at: 6 }, { tool: 'Edit', text: 'b.md' }],
   })
   assert.deepEqual(afterCut('All of it.', steps, undefined), { text: 'All of it.', steps })
+})
+
+test('turn parts: updates between steps stay apart from the reply, in order, never repeated in it', () => {
+  const text = 'Started a worker.\n\nIt is halfway.\n\nDone: open diagram.svg.'
+  const at = (s: string) => text.indexOf(s) + s.length
+  const steps = [{ tool: 'Bash', text: 'fleet start', at: at('worker.') }, { tool: 'Bash', text: 'fleet show', at: at('halfway.') }, { tool: 'Bash', text: 'fleet ack', at: text.length }]
+  // Ended on a step with no words after it (the engine hands back all it streamed): the latest update is the reply.
+  assert.deepEqual(turnParts(text, steps), { notes: [{ text: 'Started a worker.', before: 0 }, { text: 'It is halfway.', before: 1 }], reply: 'Done: open diagram.svg.' })
+  // The engine's own last message is the reply; an update that says the same isn't kept twice.
+  assert.deepEqual(turnParts(text, steps, 'Done: open diagram.svg.').notes.map((n) => n.text), ['Started a worker.', 'It is halfway.'])
+  // Words after the latest step are the reply.
+  assert.deepEqual(turnParts('Looking.\n\nAll fine.', [{ tool: 'Read', text: 'a', at: 8 }]), { notes: [{ text: 'Looking.', before: 0 }], reply: 'All fine.' })
+  // Steps without a place (older hubs) and turns with no steps: all of it is the reply, as before.
+  assert.deepEqual(turnParts('One.\n\nTwo.', [{ tool: 'Read', text: 'a' }]), { notes: [], reply: 'One.\n\nTwo.' })
+  assert.deepEqual(turnParts('', [], 'Hi'), { notes: [], reply: 'Hi' })
 })

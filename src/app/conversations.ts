@@ -4,7 +4,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import {
-  ASSISTANT_ID, afterCut, dropTags, handoverPrompt, isEffort, isMode, notificationText, readQuiet, replySlot, summarize, cleanTitle, titleFrom, titleRequest, trimThread,
+  ASSISTANT_ID, afterCut, dropTags, handoverPrompt, isEffort, isMode, notificationText, readQuiet, replySlot, turnParts, summarize, cleanTitle, titleFrom, titleRequest, trimThread,
   type Chat, type ChatSummary, type LiveTurn, type TurnCut, type Message, type QueuedTurn, type Source, type Step, type WorkerInfo,
 } from '../domain/chat.ts'
 import { eventMarker, eventsToWake, noticeKindFor, noticeTitle, wakeMessage, type FleetEvent } from '../domain/fleet.ts'
@@ -459,12 +459,15 @@ export class Conversations extends EventEmitter {
 
   /** The running turn's reply so far, as it lands above a message he sent into it: tags off, no notification. */
   private partReply(id: string, live: LiveText): Message {
-    const unquiet = readQuiet(live.text)
+    const parts = turnParts(live.text, live.steps)
+    const notes = parts.notes.map((n) => ({ ...n, text: dropTags(n.text).trim() })).filter((n) => n.text)
+    const unquiet = readQuiet(parts.reply)
     const text = dropTags(id === ASSISTANT_ID ? readNeeds(unquiet.text).text : unquiet.text)
     return {
       ...this.newMessage('assistant', live.source, text),
       id: live.messageId,
       steps: [...live.steps],
+      ...(notes.length ? { notes } : {}),
       model: live.model,
       ...(unquiet.quiet ? { quiet: true } : {}),
     }
@@ -727,7 +730,7 @@ export class Conversations extends EventEmitter {
     let handedOver = false
     try {
       const result = await go(ctl.signal, (e) => this.onEngineEvent(id, chat.title, e))
-      const { messageId: replyId, steps } = now()
+      const { messageId: replyId, steps, text: said } = now()
       // The hub is going down and the turn runs on: the next hub lands it.
       if (this.closing && this.kept.has(id)) {
         handedOver = true
@@ -745,7 +748,7 @@ export class Conversations extends EventEmitter {
       }
       // Once he has sent messages into it, the reply is what came after the latest one.
       const cut = now().cut
-      await this.land(id, chat, { ...t, replyId, steps, stopped: ctl.signal.aborted, cut: !!cut }, cut ? { ...result, text: now().text } : result)
+      await this.land(id, chat, { ...t, replyId, steps, said, stopped: ctl.signal.aborted, cut: !!cut }, cut ? { ...result, text: said } : result)
     } catch (err) {
       await this.addTurnMessage(id, { ...this.newMessage('error', source, `That didn't work: ${(err as Error).message}`), id: now().messageId })
     } finally {
@@ -770,18 +773,21 @@ export class Conversations extends EventEmitter {
   private async land(
     id: string,
     chat: Chat,
-    t: { replyId: string; source: Source; events: readonly FleetEvent[]; model: string; steps: Step[]; stopped: boolean; cut?: boolean },
+    t: { replyId: string; source: Source; events: readonly FleetEvent[]; model: string; steps: Step[]; said: string; stopped: boolean; cut?: boolean },
     result: AgentResult,
   ): Promise<void> {
     const { replyId, source, events, steps, stopped } = t
     const isAssistant = chat.kind === 'assistant'
+    // Updates it wrote on the way stay apart from the reply, which is only its last words.
+    const parts = turnParts(t.said, steps, result.text)
+    const notes = parts.notes.map((n) => ({ ...n, text: dropTags(n.text).trim() })).filter((n) => n.text)
     // An agent's own and local models share its session, so switching models keeps the conversation.
     // A chat-only local model has no session and leaves it alone.
     const agent = result.agent ?? 'claude'
     if (result.sessionId && (result.sessionId !== chat.claudeSession || agent !== (chat.sessionAgent ?? 'claude'))) {
       await this.save(id, ({ sessionAgent: _, ...c }) => ({ ...c, claudeSession: result.sessionId, ...(agent !== 'claude' ? { sessionAgent: agent } : {}) }))
     }
-    const unquiet = readQuiet(result.text)
+    const unquiet = readQuiet(parts.reply)
     const quiet = unquiet.quiet
     const read = isAssistant ? readNeeds(unquiet.text) : { text: unquiet.text, needs: null }
     const { needs } = read
@@ -796,6 +802,7 @@ export class Conversations extends EventEmitter {
       ...this.newMessage('assistant', source, text || (stopped ? 'Stopped.' : '')),
       id: replyId,
       steps,
+      ...(notes.length ? { notes } : {}),
       model: t.model,
       ...(quiet ? { quiet } : {}),
     }
@@ -832,8 +839,9 @@ export class Conversations extends EventEmitter {
       if (live) live.text = after.text
       this.emit('live', { chatId, messageId, text: after.text, steps: after.steps })
     } else if (e.type === 'step') {
-      steps.push(e.step)
-      this.emit('step', { chatId, messageId, step: e.step })
+      const step: Step = { ...e.step, at: e.step.at ?? live?.text.length ?? 0, since: e.step.since ?? this.now().toISOString() }
+      steps.push(step)
+      this.emit('step', { chatId, messageId, step })
     } else if (e.type === 'model') {
       if (this.d.claudeVersions.get()[e.alias] !== e.modelId) void this.d.claudeVersions.set(e.alias, e.modelId)
     } else if (e.type === 'approval') {

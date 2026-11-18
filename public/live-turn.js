@@ -31,19 +31,38 @@
   }
 
   /**
-   * The running reply as shown: without the assistant's "[quiet]" / "[needs you]" tags where a paragraph
-   * starts, as the hub drops them from a finished reply (readQuiet, readNeeds, dropTags); the live text keeps
-   * them, since streamed pieces point into it by position. Later updates in one turn may carry them too.
-   * Code blocks and tags inside a sentence stay. A tag still arriving in pieces ("…\n\n[qui") shows as
-   * nothing until it is whole.
+   * A running turn's text, split where its steps came: what it wrote before its latest step is narration
+   * on the way ("Now move the other five lectures…"), never the reply. Each note sits before the step it
+   * led into; `now` is the text since the latest step, which may yet be the reply. Steps from older hubs
+   * have no `at`, so all the text stays `now`, as before.
+   */
+  function split(text, steps) {
+    text = text || ''
+    const notes = []
+    let from = 0
+    for (let i = 0; i < (steps || []).length; i++) {
+      const at = steps[i].at
+      if (typeof at !== 'number' || at < from) continue
+      const note = untag(text.slice(from, Math.min(at, text.length)))
+      if (note) notes.push({ before: i, text: note })
+      from = Math.min(at, text.length)
+    }
+    return { notes, now: untag(text.slice(from)) }
+  }
+
+  /**
+   * The assistant's "[quiet]" / "[needs you]" tags where a paragraph starts, as the hub drops them from a
+   * finished reply (readQuiet, readNeeds, dropTags); the live text keeps them, since steps point into it
+   * by position. Later updates in one turn may carry them too. Code blocks and tags inside a sentence stay.
+   * A tag still arriving in pieces ("…\n\n[qui") shows as nothing until it is whole.
    */
   const TAG = /^([ \t]*)(\[(?:quiet|needs you)\][ \t]*)+/i
   const TAG_NAMES = ['[quiet]', '[needs you]']
-  function untag(text) {
+  const untag = (s) => {
     const out = []
     let fenced = false
     let starts = true
-    for (const line of (text || '').split('\n')) {
+    for (const line of s.split('\n')) {
       if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
       const bare = !fenced && starts ? line.replace(TAG, '$1') : line
       if (bare !== line && !bare.trim()) continue
@@ -67,7 +86,17 @@
     return i < 0 ? (messages || []).length : i
   }
 
-  const api = { settle, addPiece, untag, slot }
+  /** How long a step has run, said short ("45 s", "4 min", "1 h 5 min"); '' under half a minute. */
+  function elapsed(ms) {
+    const s = Math.floor(ms / 1000)
+    if (!(s >= 30)) return ''
+    if (s < 60) return `${s} s`
+    const m = Math.floor(s / 60)
+    if (m < 60) return `${m} min`
+    return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`
+  }
+
+  const api = { settle, addPiece, split, slot, elapsed }
   if (typeof window !== 'undefined') window.liveTurn = api
   if (typeof module !== 'undefined') module.exports = api
 })()

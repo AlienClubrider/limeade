@@ -338,7 +338,7 @@ export class ClaudeCli implements TurnEngine, OneShot {
             if (block?.type !== 'tool_use') continue
             const step = stepFor(block.name, block.input)
             if (live) req.onEvent({ type: 'step', step })
-            else replaySteps.push(step)
+            else replaySteps.push({ ...step, at: streamed.length })
           }
         } else if (msg.type === 'control_request') {
           if (live) this.answerControl(msg, req, write)

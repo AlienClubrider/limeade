@@ -20,6 +20,10 @@ export interface Step {
   text: string
   /** What it's doing, Claude Code style: "Running npm test", "Editing app.js", "Reading notes.md". */
   label?: string
+  /** Where in the turn's streamed text it came, so the text before it reads as narration, not the reply. */
+  at?: number
+  /** When it started (ISO time), so a long-running one can say how long it has been going. */
+  since?: string
 }
 
 export interface Message {
@@ -30,6 +34,8 @@ export interface Message {
   text: string
   /** Assistant replies: what it did on the way (tool calls). */
   steps?: Step[]
+  /** Assistant replies: what it wrote on the way (between tool calls), each kept apart from the reply. */
+  notes?: Note[]
   /** Assistant replies: the model id that answered. */
   model?: string
   /** Assistant replies: true when the user needn't be buzzed. */
@@ -107,8 +113,37 @@ export function afterCut(text: string, steps: readonly Step[], cut: TurnCut | un
   if (!cut) return { text, steps: [...steps] }
   return {
     text: text.slice(cut.text),
-    steps: steps.slice(cut.steps),
+    steps: steps.slice(cut.steps).map((s) => (typeof s.at === 'number' ? { ...s, at: Math.max(0, s.at - cut.text) } : s)),
   }
+}
+
+/** Words the agent wrote on the way, before the step (by index) it led into: an update, not the reply. */
+export interface Note {
+  text: string
+  before: number
+}
+
+/**
+ * A turn's words split at its steps: what came before a step is an update on the way, and the reply is
+ * its last message (`final`, the engine's own), else what came after its latest step, else its latest
+ * update when it ended on a step with nothing after it. So a turn with several updates never lands as one
+ * long reply that repeats them. Steps without a place (older hubs) leave all the words as the reply.
+ * public/live-turn.js splits the running turn the same way.
+ */
+export function turnParts(text: string, steps: readonly Step[], final = text): { notes: Note[]; reply: string } {
+  let notes: Note[] = []
+  let from = 0
+  for (const [i, s] of steps.entries()) {
+    if (typeof s.at !== 'number' || s.at < from) continue
+    const note = text.slice(from, Math.min(s.at, text.length)).trim()
+    if (note) notes.push({ text: note, before: i })
+    from = Math.min(s.at, text.length)
+  }
+  // An engine with no last message of its own hands back everything it streamed.
+  const own = final.trim() !== text.trim() ? final.trim() : ''
+  const reply = own || text.slice(from).trim() || (notes.pop()?.text ?? '')
+  if (own) notes = notes.filter((n) => n.text !== reply)
+  return { notes, reply }
 }
 
 /** A turn waiting its turn: enough to start it again after a restart. */

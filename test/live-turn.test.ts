@@ -55,21 +55,60 @@ test('live turn: streamed pieces line up by where they go, so none doubles or go
   assert.equal(liveTurn.addPiece('Hel', 'world', 6), 'Helworld') // a gap: the next read of the chat fills it
 })
 
-test('live turn: the assistant\'s [quiet] and [needs you] tags never show in the reply so far, even in pieces', () => {
-  assert.equal(liveTurn.untag('[quiet] Yes, found it.'), 'Yes, found it.')
-  assert.equal(liveTurn.untag('[needs you] [quiet] Pick one?'), 'Pick one?')
-  for (const piece of ['[', '[qui', '[QUIET', '[needs y', '[quiet] [nee']) assert.equal(liveTurn.untag(piece), '')
-  assert.equal(liveTurn.untag('Not [quiet] here'), 'Not [quiet] here')
-  assert.equal(liveTurn.untag('[quick note]'), '[quick note]')
-  assert.equal(liveTurn.untag(undefined), '')
+test('live turn: text written before a step is a note on the way; only text since the latest step can be the reply', () => {
+  const note = 'Now move the other five lectures into the course folder.'
+  const text = `${note}\n\nAll done.`
+  const steps = [{ tool: 'obsidian', text: '', at: note.length }]
+  assert.deepEqual(liveTurn.split(note, steps), { notes: [{ before: 0, text: note }], now: '' })
+  assert.deepEqual(liveTurn.split(text, steps), { notes: [{ before: 0, text: note }], now: 'All done.' })
+})
+
+test('live turn: notes land before the step each led into; steps without text between them add none', () => {
+  const steps = [{ tool: 'a', text: '', at: 5 }, { tool: 'b', text: '', at: 5 }, { tool: 'c', text: '', at: 16 }]
+  assert.deepEqual(liveTurn.split('Look.\n\nNow move.\n\nDone', steps), {
+    notes: [{ before: 0, text: 'Look.' }, { before: 2, text: 'Now move.' }],
+    now: 'Done',
+  })
+})
+
+test('live turn: steps from an older hub (no place in the text) leave all the text as the reply', () => {
+  assert.deepEqual(liveTurn.split('Checking that: done', [{ tool: 'Bash', text: 'ls' }]), { notes: [], now: 'Checking that: done' })
+  assert.deepEqual(liveTurn.split(undefined, []), { notes: [], now: '' })
+})
+
+test('live turn: how long a step has run, said short and only once it is worth saying', () => {
+  assert.equal(liveTurn.elapsed(12_000), '')
+  assert.equal(liveTurn.elapsed(-5_000), '')
+  assert.equal(liveTurn.elapsed(45_000), '45 s')
+  assert.equal(liveTurn.elapsed(4 * 60_000 + 20_000), '4 min')
+  assert.equal(liveTurn.elapsed(25 * 60_000), '25 min')
+  assert.equal(liveTurn.elapsed(60 * 60_000), '1 h')
+  assert.equal(liveTurn.elapsed(65 * 60_000), '1 h 5 min')
+})
+
+test('live turn: the assistant\'s [quiet] and [needs you] tags never show in its notes or the text so far', () => {
+  const text = '[quiet] About to wait.\n\n[needs you] [quiet] Pick one?'
+  const steps = [{ tool: 'Bash', text: 'sleep', at: 23 }]
+  assert.deepEqual(liveTurn.split(text, steps), { notes: [{ before: 0, text: 'About to wait.' }], now: 'Pick one?' })
+  assert.deepEqual(liveTurn.split('Not [quiet] here', []), { notes: [], now: 'Not [quiet] here' })
+})
+
+test('live turn: a tag still arriving in pieces shows as nothing, and plain text that only looks like one still shows', () => {
+  for (const piece of ['[', '[qui', '[QUIET', '[needs y', '[quiet] [nee']) assert.deepEqual(liveTurn.split(piece, []), { notes: [], now: '' })
+  assert.deepEqual(liveTurn.split('[quiet] Yes', []), { notes: [], now: 'Yes' })
+  assert.deepEqual(liveTurn.split('[quick note]', []), { notes: [], now: '[quick note]' })
+  assert.deepEqual(liveTurn.split('[1]', []), { notes: [], now: '[1]' })
 })
 
 test('live turn: tags opening later updates in one turn never show, even arriving in pieces, but code keeps them', () => {
-  assert.equal(liveTurn.untag('Initial update\n\n[quiet] Second update\n\n[quiet] Third update'), 'Initial update\n\nSecond update\n\nThird update')
-  for (const piece of ['[', '[qui', '[quiet', '[needs y']) assert.equal(liveTurn.untag(`Initial update\n\n${piece}`), 'Initial update')
+  assert.deepEqual(liveTurn.split('Initial update\n\n[quiet] Second update\n\n[quiet] Third update', []), { notes: [], now: 'Initial update\n\nSecond update\n\nThird update' })
+  for (const piece of ['[', '[qui', '[quiet', '[needs y']) assert.deepEqual(liveTurn.split(`Initial update\n\n${piece}`, []), { notes: [], now: 'Initial update' })
   const code = 'See:\n\n```\n[quiet] Routine\n```'
-  assert.equal(liveTurn.untag(code), code)
-  assert.equal(liveTurn.untag('Said [quiet] in passing'), 'Said [quiet] in passing')
+  assert.deepEqual(liveTurn.split(code, []), { notes: [], now: code })
+  assert.deepEqual(liveTurn.split('Said [quiet] in passing', []), { notes: [], now: 'Said [quiet] in passing' })
+  // After a step, too.
+  const text = 'Looking.\n\n[quiet] Found it.\n\n[quiet] Fixed.'
+  assert.deepEqual(liveTurn.split(text, [{ tool: 'Bash', text: 'x', at: 8 }]), { notes: [{ before: 0, text: 'Looking.' }], now: 'Found it.\n\nFixed.' })
 })
 
 test('live turn: the running reply shows above his messages still waiting their turn, else at the end', () => {

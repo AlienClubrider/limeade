@@ -428,9 +428,19 @@ function paintLive(V) {
   if (V.live.dataset.queued !== String(queuedShown(V))) return paintConvo(V) // a waiting message's label changes
   const ids = Object.keys(A.streaming).length ? Object.keys(A.streaming) : Object.keys(A.liveSteps)
   const id = ids[ids.length - 1]
-  const now = liveTurn.untag(A.streaming[id])
-  put(V.live, progressLine(A.liveSteps[id] || []),
+  const steps = A.liveSteps[id] || []
+  // What it wrote before its latest step is a note on the way, not the reply: muted, with the activity.
+  const { notes, now } = liveTurn.split(A.streaming[id], steps)
+  const note = notes.length && notes[notes.length - 1].before === steps.length - 1 ? notes[notes.length - 1].text : null
+  const running = A.chat.busy && !now ? steps[steps.length - 1] : null
+  // Earlier updates keep their own place, folded, instead of the latest one writing over them.
+  put(V.live, updatesFold(id, note ? notes.slice(0, -1) : notes),
+    note ? h('div', { class: 'md turn-note', html: window.md.render(note) }) : null,
+    progressLine(steps, notes, running),
     now ? h('div', { class: 'reply' }, h('div', { class: 'md reply-card', html: window.md.render(now) })) : null)
+  // A step that runs on: repaint now and then so its time keeps counting.
+  clearTimeout(V.tick)
+  if (running?.since) V.tick = setTimeout(() => liveSoon(V), 15000)
 }
 
 /**
@@ -477,6 +487,7 @@ function fileMeta(a) {
 
 function reply(m) {
   return h('div', { class: 'reply' },
+    updatesFold(m.id, m.notes || []),
     m.steps?.length ? statusLine(m.steps, false) : null,
     m.text ? h('div', { class: 'md reply-card', html: window.md.render(m.text) }) : null,
     h('div', { class: 'reply-actions' },
@@ -486,16 +497,37 @@ function reply(m) {
   )
 }
 
+/** Replies whose updates on the way are unfolded; kept by id, so a reply that lands stays as it was. */
+const openUpdates = new Set()
+
+/**
+ * What a turn wrote on the way (between its steps), each update apart and in order, folded behind one
+ * line so the reply below stays easy to find.
+ */
+function updatesFold(id, notes) {
+  if (!notes.length) return null
+  const open = openUpdates.has(id)
+  const box = h('div', { class: 'updates' },
+    h('button', {
+      class: 'status-line', 'aria-expanded': String(open),
+      onclick: () => { open ? openUpdates.delete(id) : openUpdates.add(id); box.replaceWith(updatesFold(id, notes)) },
+    }, `${notes.length} earlier ${notes.length === 1 ? 'update' : 'updates'}`, svg(open ? ICON.chevD : ICON.chevR)),
+    open ? notes.map((n) => h('div', { class: 'md turn-note update', html: window.md.render(n.text) })) : null)
+  return box
+}
+
 /**
  * While a turn runs: one line that follows its latest step ("Reading notes.md…", "Starting a worker…"),
  * with the soft light sweep the Claude apps use on in-progress text. When the turn ends the reply shows
  * the usual collapsed "Ran 3 commands ›" line instead.
  */
-function progressLine(steps) {
+function progressLine(steps, notes, running) {
   const last = steps[steps.length - 1]
   const text = `${last ? last.label || statusLabel([last], false) : 'Thinking'}…`
-  return h('button', { class: 'status-line live', onclick: steps.length ? () => stepsSheet(steps, true) : null },
-    h('span', { class: 'shimmer' }, text))
+  // How long the step it's on has run, so a stuck tool shows (Stop stays in the composer).
+  const took = running?.since ? liveTurn.elapsed(Date.now() - new Date(running.since).getTime()) : ''
+  return h('button', { class: 'status-line live', onclick: steps.length ? () => stepsSheet(steps, true, notes) : null },
+    h('span', { class: 'shimmer' }, text), took ? h('span', { class: 'took' }, took) : null)
 }
 
 function statusLine(steps, running) {
@@ -504,9 +536,11 @@ function statusLine(steps, running) {
   return h('button', { class: 'status-line', onclick: steps.length ? () => stepsSheet(steps, running) : null }, text, steps.length ? svg(ICON.chevR) : null)
 }
 
-function stepsSheet(steps, running) {
+function stepsSheet(steps, running, notes = []) {
   sheet(running ? 'Running' : statusLabel(steps, false), null, h('div', { class: 'steps' },
-    steps.map((s) => h('div', { class: 'step' }, s.label || s.tool))))
+    steps.map((s, i) => [
+      notes.filter((n) => n.before === i).map((n) => h('div', { class: 'note' }, n.text)),
+      h('div', { class: 'step' }, s.label || s.tool)])))
 }
 
 function approvalCard(a, V) {

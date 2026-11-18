@@ -346,7 +346,7 @@ export class AcpTurns implements TurnEngine {
         if (msg?.method === 'session/update') {
           for (const e of reader.read(msg.params?.update)) {
             if (live) req.onEvent(e)
-            else if (e.type === 'step') replaySteps.push(e.step)
+            else if (e.type === 'step') replaySteps.push({ ...e.step, at: reader.text.length })
           }
         } else if (msg?.method === '$/cancel_request') {
           open.delete(JSON.stringify(msg.params?.requestId ?? msg.params?.id))
