@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, sign } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { createAccessCheck } from '../src/domain/access.ts'
 import { kindsFrom, payloadFor, pushKindOf, wants, isSubscription } from '../src/domain/push.ts'
 import { PushOut } from '../src/app/push.ts'
@@ -132,4 +133,20 @@ test('push out: no buzz on any device while one shows the chat; other chats, sta
   sent.length = 0
   await out.notice({ ...base, kind: 'reply', chatId: 'c-1' })
   assert.deepEqual(sent, ['https://p/1', 'https://p/2'])
+})
+
+test('Settings scrolls with no visible scrollbar on every screen, not only on phones', () => {
+  const css = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8')
+  // top-level rules only: a rule inside @media (hover: none) would leave the desktop bar showing
+  let top = '', depth = 0
+  for (const ch of css.replace(/\/\*[\s\S]*?\*\//g, '')) {
+    if (ch === '{') depth++
+    if (depth <= 1 && !(ch === '}' && depth === 0)) top += ch
+    if (ch === '}') depth--
+  }
+  // what's left: top-level rules whole, and each @media reduced to its head and loose '}'s
+  const rule = (sel: string) => new RegExp(`(^|[\\n}])\\s*${sel.replace(/[.:-]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(top)?.[2] ?? ''
+  assert.match(rule('.settings-page .pagebody'), /scrollbar-width:\s*none/)
+  assert.match(rule('.settings-page .pagebody::-webkit-scrollbar'), /display:\s*none/)
+  assert.doesNotMatch(rule('.settings-page .pagebody'), /overflow(-y)?:\s*hidden/) // still scrolls
 })

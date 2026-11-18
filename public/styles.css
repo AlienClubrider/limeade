@@ -53,6 +53,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   .scroll, .pagebody, .sheet { scrollbar-width: none }
   .scroll::-webkit-scrollbar, .pagebody::-webkit-scrollbar, .sheet::-webkit-scrollbar { display: none }
 }
+/* Settings scrolls without a visible bar on every screen: on desktop it sat right against the cards */
+.settings-page .pagebody { scrollbar-width: none }
+.settings-page .pagebody::-webkit-scrollbar { display: none }
 #thread { padding: 12px 18px; display: flex; flex-direction: column }
 #thread > *, #thread > .live-turn > * { flex-shrink: 0 } /* never squash a line when the thread overflows */
 .live-turn { display: contents } /* the running turn's lines sit in the thread like any other */
