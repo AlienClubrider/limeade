@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { Conversations, RESTARTED, WORKER_NOTE, assistantNote, freshStart, type FleetNotes } from '../src/app/conversations.ts'
 import type { Chat } from '../src/domain/chat.ts'
 import type { FleetMode } from '../src/domain/fleet.ts'
@@ -775,6 +776,20 @@ test('with built-in workers the Assistant is told the bundled fleet command, and
   assert.doesNotMatch(call.appendSystemPrompt!, /~\/bin|\.claude|homelab/i)
   assert.match(call.prompt, /^\(New assistant conversation[^)]*fleet digest/)
   assert.match(call.prompt, /\[fleet event\] Fleet events \(handle each, then fleet ack\):\n1 2026-11-17T10:00:00Z dark-theme reported: done: shipped$/)
+})
+
+test('finished work leads with what was made, and says so when it cannot point to it (issue #11)', () => {
+  for (const fleet of [null, SCRIPTS, { kind: 'builtin' } as const]) {
+    const note = assistantNote(fleet)
+    assert.match(note, /lead with it: the TL;DR names it and the next line is where to open it \(a link or its full path\)/)
+    assert.match(note, /Don't retell the workers' progress or the checks they ran/)
+    assert.match(note, /any limitation that matters/)
+    assert.match(note, /If you can't point to it .* say that plainly .* never just that it's ready/)
+  }
+  // Workers hand the Assistant where the result is, so it has something to lead with.
+  assert.match(WORKER_NOTE, /your done line says where it is: its link or full path/)
+  const defaults = readFileSync(new URL('../defaults/assistant.md', import.meta.url), 'utf8')
+  assert.match(defaults, /When a job made something .* put it first/)
 })
 
 test('a worker chat runs as its persona in its folder, told how to report, with its name in the environment', async () => {

@@ -23,6 +23,8 @@ const APP_NOTE = [
   'Each reply becomes a notification showing your TL;DR line, so always start with it.',
   "Start a reply with [quiet] when the user needn't be buzzed (for example a routine event you fully handled).",
   "When a reply needs the user (a decision, a question, something to look at), end it with the question; if there is no question but they must look, start the reply with [needs you]. That puts it in the app's bell.",
+  "When finished work made something (a file, diagram, page, document or link), lead with it: the TL;DR names it and the next line is where to open it (a link or its full path), then a line or two on what it is and any limitation that matters. Don't retell the workers' progress or the checks they ran; that stays in their history.",
+  "If you can't point to it (no link, the file isn't there, the worker didn't say where), say that plainly and what you're doing about it, never just that it's ready.",
 ]
 
 /**
@@ -74,6 +76,7 @@ export const WORKER_NOTE = [
   'Report with `fleet status <state> "<one line>"` (states: working, paused, needs-decision, blocked, done, failed): working when you start,',
   'needs-decision with the question when you need an answer (then end your turn; the answer comes as your next message), blocked when something stops you,',
   'done with the outcome when the job is finished, failed if you give up. Every turn that ends with you stopping work ends with one of these.',
+  'When the job made something to look at (a file, diagram, page or link), your done line says where it is: its link or full path.',
 ].join(' ')
 
 /** Said in the thread when a turn was cut off by the hub stopping or restarting (one that couldn't outlive it). */
