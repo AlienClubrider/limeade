@@ -4,8 +4,8 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import {
-  ASSISTANT_ID, dropTags, handoverPrompt, isEffort, isMode, notificationText, readQuiet, replySlot, summarize, cleanTitle, titleFrom, titleRequest, trimThread,
-  type Chat, type ChatSummary, type LiveTurn, type Message, type QueuedTurn, type Source, type Step, type WorkerInfo,
+  ASSISTANT_ID, afterCut, dropTags, handoverPrompt, isEffort, isMode, notificationText, readQuiet, replySlot, summarize, cleanTitle, titleFrom, titleRequest, trimThread,
+  type Chat, type ChatSummary, type LiveTurn, type TurnCut, type Message, type QueuedTurn, type Source, type Step, type WorkerInfo,
 } from '../domain/chat.ts'
 import { eventMarker, eventsToWake, noticeKindFor, noticeTitle, wakeMessage, type FleetEvent } from '../domain/fleet.ts'
 import { DEFAULT_ASSISTANT_MODEL, agentLabel, agentOfEngine, historyFor, isAgent, parseModelId, turnEngine, type Agent, type TurnEngineKey } from '../domain/models.ts'
@@ -13,7 +13,7 @@ import { questionLine, readNeeds, reaskPrompt, type InboxItem } from '../domain/
 import { MAX_FILE_BYTES, attachmentIds, type Attachment, type StoredAttachment } from '../domain/attachments.ts'
 import { DEFAULT_MACHINE, machines, type Where } from '../domain/places.ts'
 import type {
-  ApprovalDecision, ApprovalRequest, AttachmentStore, ChatStore, EngineEvent, FleetLog, FleetModeStore, HomeFolders, InboxStore, KeyValue, Notice, NoticeLog, OneShot, TurnEngine,
+  ApprovalDecision, ApprovalRequest, AttachmentStore, ChatStore, EngineEvent, FleetLog, FleetModeStore, HomeFolders, InboxStore, KeyValue, Notice, NoticeLog, OneShot, Steer, TurnEngine,
   TurnRequest, TurnResult,
 } from '../ports.ts'
 
@@ -101,6 +101,11 @@ interface LiveText {
   messageId: string
   text: string
   steps: Step[]
+  /** Set when he sent a message into the turn: the turn's text and steps already landed above it. */
+  cut?: TurnCut
+  /** Who the turn answers and its model, for the part of the reply that lands above his message. */
+  source: Source
+  model: string
 }
 
 export class HubError extends Error {
@@ -164,6 +169,8 @@ export class Conversations extends EventEmitter {
   private kept = new Set<string>()
   private writes = new Set<Promise<unknown>>()
   private live = new Map<string, LiveText>()
+  /** Running turns that take his messages as they run (steering), by chat. */
+  private steers = new Map<string, Steer>()
 
   constructor(deps: Deps) {
     super()
@@ -392,14 +399,63 @@ export class Conversations extends EventEmitter {
       ...(files.length ? { attachments: files.map(({ path: _p, ...a }) => a) } : {}),
     }
     const title = chat.kind === 'chat' && !chat.renamed && chat.messages.length === 0 ? titleFrom(text || files[0]!.name) : chat.title
-    await this.save(id, (c) => ({ ...c, title, messages: [...c.messages, message] }))
-    if (title !== chat.title) this.emit('chat', summarize(this.d.store.get(id)!))
-    // Queued first, so the app knows it waits (when a turn is running) as soon as it shows.
-    void this.enqueue(id, 'chat', message.text, [], message.id, files)
-    this.emit('message', { chatId: id, message })
+    // A turn is running and nothing of his waits behind it: his message goes into that turn (steering).
+    const steer = this.steers.get(id)
+    if (steer && !this.waiting(id).length) {
+      await this.steerIn(id, message, files, steer)
+    } else {
+      await this.save(id, (c) => ({ ...c, title, messages: [...c.messages, message] }))
+      if (title !== chat.title) this.emit('chat', summarize(this.d.store.get(id)!))
+      // Queued first, so the app knows it waits (when a turn is running) as soon as it shows.
+      void this.enqueue(id, 'chat', message.text, [], message.id, files)
+      this.emit('message', { chatId: id, message })
+    }
     // He answered: open questions and "look at this" items are done.
     if (id === ASSISTANT_ID) await this.clearInbox((i) => i.kind !== 'approval')
     return message
+  }
+
+  /**
+   * His message into the running turn (steering). What the turn has said so far lands above it as a
+   * reply of its own, his message goes under it, and the rest of the turn streams below as a new reply,
+   * so the thread reads in the order things happened. If the turn ends without taking it in, it runs as
+   * a turn of its own after.
+   */
+  private async steerIn(id: string, message: Message, files: readonly StoredAttachment[], steer: Steer) {
+    const took = steer({ id: message.id, prompt: message.text, ...(files.length ? { attachments: files } : {}) })
+    const live = this.live.get(id)
+    let part: Message | null = null
+    if (live) {
+      const cut: TurnCut = { text: (live.cut?.text ?? 0) + live.text.length, steps: (live.cut?.steps ?? 0) + live.steps.length }
+      if (live.text.trim() || live.steps.length) part = this.partReply(id, live)
+      // From here the turn's words and steps go to a new reply, below his message.
+      this.live.set(id, { ...live, messageId: part ? randomUUID() : live.messageId, text: '', steps: [], cut })
+    }
+    const next = this.live.get(id)
+    await this.save(id, (c) => ({
+      ...c,
+      messages: [...c.messages, ...(part ? [part] : []), message],
+      ...(c.liveTurn && next ? { liveTurn: { ...c.liveTurn, replyId: next.messageId, ...(next.cut ? { cut: next.cut } : {}) } } : {}),
+    }))
+    // `before`: wherever his message already is on screen (the app adds it when the send returns).
+    if (part) this.emit('message', { chatId: id, message: part, before: message.id })
+    this.emit('message', { chatId: id, message })
+    void took.then((ok) => {
+      if (!ok) void this.enqueue(id, 'chat', message.text, [], message.id, [...files])
+    })
+  }
+
+  /** The running turn's reply so far, as it lands above a message he sent into it: tags off, no notification. */
+  private partReply(id: string, live: LiveText): Message {
+    const unquiet = readQuiet(live.text)
+    const text = dropTags(id === ASSISTANT_ID ? readNeeds(unquiet.text).text : unquiet.text)
+    return {
+      ...this.newMessage('assistant', live.source, text),
+      id: live.messageId,
+      steps: [...live.steps],
+      model: live.model,
+      ...(unquiet.quiet ? { quiet: true } : {}),
+    }
   }
 
   // ---------- the bell ----------
@@ -605,6 +661,7 @@ export class Conversations extends EventEmitter {
             const live: LiveTurn = { engine: key, handle, replyId, source, model: chat.model, ...(events.length ? { events: [...events] } : {}) }
             void this.save(id, (c) => (c.turnRunning ? { ...c, liveTurn: live } : c)).catch(() => undefined)
           },
+          onSteerable: (steer) => this.steers.set(id, steer),
         })
       const result = await attempt(session)
       const lost = result.sessionLost && !this.closing
@@ -624,10 +681,12 @@ export class Conversations extends EventEmitter {
         const chat = this.get(id)
         const parsed = parseModelId(live.model)
         const agent = agentOfEngine(live.engine)
-        await this.drive(id, chat, { replyId: live.replyId, source: live.source, events: live.events ?? [], model: live.model }, async (signal, onEvent) => {
+        const t = { replyId: live.replyId, source: live.source, events: live.events ?? [], model: live.model, ...(live.cut ? { cut: live.cut } : {}) }
+        await this.drive(id, chat, t, async (signal, onEvent) => {
           const result = await engine.reattach!(live.handle, {
             prompt: '', history: [], model: parsed?.name ?? live.model, effort: chat.effort, mode: chat.mode,
             sessionId: (chat.sessionAgent ?? 'claude') === agent ? chat.claudeSession : null, signal, onEvent,
+            onSteerable: (steer) => this.steers.set(id, steer),
           })
           return result && { ...result, agent }
         })
@@ -644,17 +703,19 @@ export class Conversations extends EventEmitter {
   private async drive(
     id: string,
     chat: Chat,
-    t: { replyId: string; source: Source; events: readonly FleetEvent[]; model: string },
+    t: { replyId: string; source: Source; events: readonly FleetEvent[]; model: string; cut?: TurnCut },
     go: (signal: AbortSignal, onEvent: TurnRequest['onEvent']) => Promise<AgentResult | null>,
   ): Promise<void> {
-    const { replyId, source } = t
-    const steps: Step[] = []
+    const { source } = t
     const ctl = new AbortController()
     this.running.set(id, ctl)
-    this.live.set(id, { messageId: replyId, text: '', steps })
+    this.live.set(id, { messageId: t.replyId, text: '', steps: [], source, model: t.model, ...(t.cut ? { cut: t.cut } : {}) })
+    // The reply so far (after his latest message sent into the turn, if any).
+    const now = (): LiveText => this.live.get(id) ?? { messageId: t.replyId, text: '', steps: [], source, model: t.model }
     let handedOver = false
     try {
-      const result = await go(ctl.signal, (e) => this.onEngineEvent(id, chat.title, replyId, steps, e))
+      const result = await go(ctl.signal, (e) => this.onEngineEvent(id, chat.title, e))
+      const { messageId: replyId, steps } = now()
       // The hub is going down and the turn runs on: the next hub lands it.
       if (this.closing && this.kept.has(id)) {
         handedOver = true
@@ -670,10 +731,13 @@ export class Conversations extends EventEmitter {
         await this.addTurnMessage(id, this.newMessage('error', source, RESTARTED))
         return
       }
-      await this.land(id, chat, { ...t, steps, stopped: ctl.signal.aborted }, result)
+      // Once he has sent messages into it, the reply is what came after the latest one.
+      const cut = now().cut
+      await this.land(id, chat, { ...t, replyId, steps, stopped: ctl.signal.aborted, cut: !!cut }, cut ? { ...result, text: now().text } : result)
     } catch (err) {
-      await this.addTurnMessage(id, { ...this.newMessage('error', source, `That didn't work: ${(err as Error).message}`), id: replyId })
+      await this.addTurnMessage(id, { ...this.newMessage('error', source, `That didn't work: ${(err as Error).message}`), id: now().messageId })
     } finally {
+      this.steers.delete(id)
       if (!handedOver) {
         this.running.delete(id)
         this.live.delete(id)
@@ -694,7 +758,7 @@ export class Conversations extends EventEmitter {
   private async land(
     id: string,
     chat: Chat,
-    t: { replyId: string; source: Source; events: readonly FleetEvent[]; model: string; steps: Step[]; stopped: boolean },
+    t: { replyId: string; source: Source; events: readonly FleetEvent[]; model: string; steps: Step[]; stopped: boolean; cut?: boolean },
     result: AgentResult,
   ): Promise<void> {
     const { replyId, source, events, steps, stopped } = t
@@ -714,6 +778,8 @@ export class Conversations extends EventEmitter {
       await this.addTurnMessage(id, { ...this.newMessage('error', source, `That didn't work: ${result.error}`), id: replyId, steps })
       return
     }
+    // Nothing more after his last message sent into the turn: what it said is already in the thread.
+    if (t.cut && !text && !steps.length && !stopped) return
     const reply: Message = {
       ...this.newMessage('assistant', source, text || (stopped ? 'Stopped.' : '')),
       id: replyId,
@@ -739,16 +805,20 @@ export class Conversations extends EventEmitter {
     } else if (!quiet && !stopped) await this.noticeForReply(chat, reply, source, events)
   }
 
-  private onEngineEvent(chatId: string, chatTitle: string, messageId: string, steps: Step[], e: EngineEvent): void {
+  private onEngineEvent(chatId: string, chatTitle: string, e: EngineEvent): void {
     const live = this.live.get(chatId)
+    const messageId = live?.messageId ?? ''
+    const steps = live?.steps ?? []
     if (e.type === 'text') {
       const at = live?.text.length ?? 0
       if (live) live.text += e.text
       this.emit('delta', { chatId, messageId, text: e.text, at })
     } else if (e.type === 'resumed') {
-      steps.splice(0, steps.length, ...e.steps)
-      if (live) live.text = e.text
-      this.emit('live', { chatId, messageId, text: e.text, steps: e.steps })
+      // What came before his latest message sent into the turn is already in the thread.
+      const after = afterCut(e.text, e.steps, live?.cut)
+      steps.splice(0, steps.length, ...after.steps)
+      if (live) live.text = after.text
+      this.emit('live', { chatId, messageId, text: after.text, steps: after.steps })
     } else if (e.type === 'step') {
       steps.push(e.step)
       this.emit('step', { chatId, messageId, step: e.step })

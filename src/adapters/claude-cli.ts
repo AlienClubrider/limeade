@@ -12,8 +12,8 @@ import { StringDecoder } from 'node:string_decoder'
 import { fileURLToPath } from 'node:url'
 import { attachmentNote, sendsInline, type StoredAttachment } from '../domain/attachments.ts'
 import { cliPermissionMode, stepFor, type Step } from '../domain/chat.ts'
-import type { ApprovalDecision, OneShot, TurnEngine, TurnRequest, TurnResult } from '../ports.ts'
-import { KEEPER_FILES } from './turn-files.ts'
+import type { ApprovalDecision, OneShot, SteerMessage, TurnEngine, TurnRequest, TurnResult } from '../ports.ts'
+import { KEEPER_FILES, allowSteers, recordSteer, steerIds } from './turn-files.ts'
 
 const KEEPER = fileURLToPath(new URL('./turn-keeper.ts', import.meta.url))
 /** When the turn started (ms), so its time limit holds across hub restarts. */
@@ -108,6 +108,8 @@ export function claudeArgs(
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
     '--include-partial-messages',
+    // His messages sent into the running turn come back when Claude takes them in (steering).
+    '--replay-user-messages',
     '--verbose',
     '--permission-prompt-tool', 'stdio',
     '--permission-mode', cliPermissionMode(req.mode),
@@ -191,6 +193,7 @@ export class ClaudeCli implements TurnEngine, OneShot {
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       writeFileSync(join(dir, KEEPER_FILES.first), JSON.stringify({ type: 'user', message: { role: 'user', content } }), { mode: 0o600 })
       writeFileSync(join(dir, STARTED), String(Date.now()), { mode: 0o600 })
+      allowSteers(dir)
       // A file, not inline JSON, so an endpoint key isn't in the process list.
       if (this.o.endpoint) writeFileSync(join(dir, KEEPER_FILES.settings), JSON.stringify(endpointSettings(req.model, this.o.endpoint)), { mode: 0o600 })
     } catch (err) {
@@ -256,6 +259,12 @@ export class ClaudeCli implements TurnEngine, OneShot {
       const replaySteps: Step[] = []
       const waiting: any[] = []
       const answered = resumed ? answeredIds(file(KEEPER_FILES.answered)) : new Set<string>()
+      // His messages sent into this turn (steering) and those Claude has taken in (it echoes them back).
+      // The turn isn't over until every one is in: one sent as it finishes runs as one more round.
+      const steerable = steerIds(dir)
+      const sent = new Set(steerable ?? [])
+      const taken = new Set<string>()
+      const told = new Map<string, (took: boolean) => void>()
 
       // The way in: the keeper's socket. Lines wait until it's connected.
       let sock: Socket | null = null
@@ -306,6 +315,12 @@ export class ClaudeCli implements TurnEngine, OneShot {
           return
         }
         if (msg.session_id) session = msg.session_id
+        if (msg.type === 'user' && msg.isReplay && sent.has(msg.uuid)) {
+          taken.add(msg.uuid)
+          told.get(msg.uuid)?.(true)
+          told.delete(msg.uuid)
+          return
+        }
         // Which Claude version an alias is (for the picker); a local model's name says nothing about that.
         if (msg.type === 'system' && msg.subtype === 'init' && typeof msg.model === 'string' && !this.o.endpoint) {
           req.onEvent({ type: 'model', alias: req.model, modelId: msg.model })
@@ -329,9 +344,32 @@ export class ClaudeCli implements TurnEngine, OneShot {
           if (live) this.answerControl(msg, req, write)
           else if (!answered.has(msg.request_id)) waiting.push(msg)
         } else if (msg.type === 'result') {
+          // A message of his it hasn't taken in yet starts another round: wait for that one's result.
+          if (!msg.is_error && [...sent].some((id) => !taken.has(id))) return
           result = { text: typeof msg.result === 'string' ? msg.result : '', isError: Boolean(msg.is_error) }
           write({ keeper: 'end-stdin' })
         }
+      }
+
+      const steer = async (m: SteerMessage): Promise<boolean> => {
+        if (finished || result) return false
+        let content: Awaited<ReturnType<typeof userContent>>
+        try {
+          content = await userContent(m.prompt, m.attachments, undefined, !this.o.endpoint)
+        } catch {
+          return false
+        }
+        // Read again: the turn may have ended while the files were read.
+        if (finished || result || sockGone) return false
+        try {
+          recordSteer(dir, m.id)
+        } catch {
+          return false
+        }
+        sent.add(m.id)
+        const took = new Promise<boolean>((r) => told.set(m.id, r))
+        write({ type: 'user', uuid: m.id, session_id: '', parent_tool_use_id: null, message: { role: 'user', content } })
+        return took
       }
 
       // The way out: out.jsonl, read from the start, then as it grows.
@@ -372,6 +410,7 @@ export class ClaudeCli implements TurnEngine, OneShot {
           live = true
           req.onEvent({ type: 'resumed', text: streamed, steps: replaySteps })
           for (const msg of waiting) this.answerControl(msg, req, write)
+          if (steerable && !result) req.onSteerable?.(steer)
         }
         if (result) return finish(null, false)
         const exit = readJson(file(KEEPER_FILES.exit))
@@ -398,6 +437,9 @@ export class ClaudeCli implements TurnEngine, OneShot {
         if (fd !== null) closeSync(fd)
         this.tidy(dir, session)
         sock?.end()
+        // Messages it never took in: the hub runs them as turns of their own.
+        for (const r of told.values()) r(false)
+        told.clear()
         const r = result as { text: string; isError: boolean } | null
         if (r && !r.isError) return resolve({ text: r.text || streamed, sessionId: session })
         if (timedOut) {
@@ -417,6 +459,7 @@ export class ClaudeCli implements TurnEngine, OneShot {
         watcher.on('error', () => {})
       } catch {}
       poll = setInterval(tick, 250)
+      if (live && steerable) req.onSteerable?.(steer)
       tick()
     })
   }

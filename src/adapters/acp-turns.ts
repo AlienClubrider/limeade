@@ -11,10 +11,10 @@ import { delimiter, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { fileURLToPath } from 'node:url'
 import { stepFor, type Step } from '../domain/chat.ts'
-import type { ApprovalDecision, ApprovalRequest, EngineEvent, TurnEngine, TurnRequest, TurnResult } from '../ports.ts'
+import type { ApprovalDecision, ApprovalRequest, EngineEvent, SteerMessage, TurnEngine, TurnRequest, TurnResult } from '../ports.ts'
 import type { AcpTurnSpec } from './acp-keeper.ts'
 import { userContent } from './claude-cli.ts'
-import { KEEPER_FILES } from './turn-files.ts'
+import { KEEPER_FILES, allowSteers, recordSteer, steerIds } from './turn-files.ts'
 
 const KEEPER = fileURLToPath(new URL('./acp-keeper.ts', import.meta.url))
 const STARTED = 'started'
@@ -212,6 +212,7 @@ export class AcpTurns implements TurnEngine {
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       writeFileSync(join(dir, KEEPER_FILES.first), JSON.stringify(spec), { mode: 0o600 })
       writeFileSync(join(dir, STARTED), String(Date.now()), { mode: 0o600 })
+      allowSteers(dir)
     } catch (err) {
       return { text: '', sessionId: req.sessionId, error: `couldn't start the turn (${(err as Error).message})` }
     }
@@ -229,14 +230,15 @@ export class AcpTurns implements TurnEngine {
     })
     keeper.unref()
     req.onStart?.(handle)
-    return (await this.follow(dir, req, false)) ?? { text: '', sessionId: req.sessionId, error: 'the turn ended without a word' }
+    return (await this.follow(dir, req, false, turn.inlinePhotos)) ?? { text: '', sessionId: req.sessionId, error: 'the turn ended without a word' }
   }
 
   async reattach(handle: string, req: TurnRequest): Promise<TurnResult | null> {
     if (!handle.startsWith(this.agent.handlePrefix) || !/^[0-9a-f-]{36}$/.test(handle.slice(this.agent.handlePrefix.length))) return null
     const dir = join(this.o.turnsDir, handle)
     if (!existsSync(join(dir, STARTED))) return null
-    return this.follow(dir, req, true)
+    // Photos steered into a picked-up turn go by path: whether this agent sees them inline isn't kept.
+    return this.follow(dir, req, true, false)
   }
 
   /** Whether the agent's version of a model (Claude's alias → id) should be reported. */
@@ -245,7 +247,7 @@ export class AcpTurns implements TurnEngine {
   }
 
   /** Reads a kept turn's output from the start and talks to its adapter. Null when the keeper vanished. */
-  private follow(dir: string, req: TurnRequest, resumed: boolean): Promise<TurnResult | null> {
+  private follow(dir: string, req: TurnRequest, resumed: boolean, inlinePhotos: boolean): Promise<TurnResult | null> {
     return new Promise((resolve) => {
       const file = (f: string) => join(dir, f)
       const reader = new AcpReplyReader({ alias: req.model, reportModel: this.reportsModel(req), agent: this.agent })
@@ -259,6 +261,11 @@ export class AcpTurns implements TurnEngine {
       // Requests from the adapter not answered yet, by id (JSON), in order.
       const open = new Map<string, any>()
       const answered = resumed ? answeredIds(file(KEEPER_FILES.answered)) : new Set<string>()
+      // His messages sent into this turn (steering), until the keeper says how each went.
+      const steerable = steerIds(dir)
+      const unanswered = new Set(steerable ?? [])
+      const told = new Map<string, (took: boolean) => void>()
+      let endSeenAt = 0
 
       let sock: Socket | null = null
       let sockGone = false
@@ -325,6 +332,13 @@ export class AcpTurns implements TurnEngine {
           return
         }
         if (msg?.keeper === true) {
+          if (typeof msg.steered === 'string') {
+            unanswered.delete(msg.steered)
+            // Taken in after the turn ended is too late to be answered in it.
+            told.get(msg.steered)?.(msg.outcome === 'injected' && !end)
+            told.delete(msg.steered)
+            return
+          }
           if (typeof msg.sessionId === 'string' && msg.sessionId) session = msg.sessionId
           if (msg.stopReason || msg.error) end = msg
           return
@@ -381,7 +395,10 @@ export class AcpTurns implements TurnEngine {
           req.onEvent({ type: 'resumed', text: reader.text, steps: replaySteps })
           for (const msg of open.values()) handleRequest(msg)
           open.clear()
+          if (steerable && !end) req.onSteerable?.(steer)
         }
+        // Steers still out when it ended: wait a moment for the keeper to say how they went.
+        if (end && unanswered.size && Date.now() - (endSeenAt ||= Date.now()) < 3_000) return
         if (end) return finish(null, false)
         const exit = readJson(file(KEEPER_FILES.exit))
         if (exit) {
@@ -405,6 +422,8 @@ export class AcpTurns implements TurnEngine {
         if (fd !== null) closeSync(fd)
         this.tidy(dir, session)
         sock?.end()
+        for (const r of told.values()) r(false)
+        told.clear()
         const e = end as typeof end
         if (timedOut) {
           const mins = Math.round(this.o.turnTimeoutMs / 60_000)
@@ -420,11 +439,32 @@ export class AcpTurns implements TurnEngine {
         resolve({ text: reader.text, sessionId: sessionLost ? null : session, error: why, ...(sessionLost ? { sessionLost } : {}) })
       }
 
+      const steer = async (m: SteerMessage): Promise<boolean> => {
+        if (finished || end || sockGone) return false
+        let prompt: unknown[]
+        try {
+          prompt = acpPrompt(await userContent(m.prompt, m.attachments, undefined, inlinePhotos))
+        } catch {
+          return false
+        }
+        if (finished || end || sockGone) return false
+        try {
+          recordSteer(dir, m.id)
+        } catch {
+          return false
+        }
+        unanswered.add(m.id)
+        const took = new Promise<boolean>((r) => told.set(m.id, r))
+        write({ keeper: 'steer', id: m.id, prompt })
+        return took
+      }
+
       try {
         watcher = watch(dir, () => tick())
         watcher.on('error', () => {})
       } catch {}
       poll = setInterval(tick, 250)
+      if (live && steerable) req.onSteerable?.(steer)
       tick()
     })
   }

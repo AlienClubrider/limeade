@@ -14,6 +14,8 @@
 //   a JSON-RPC response    the answer to one of the adapter's requests (a permission prompt)
 //   {keeper:'cancel'}      stop the turn politely (session/cancel)
 //   {keeper:'steer', text} tell the agent something mid-turn (after a refused tool, the reason)
+//   {keeper:'steer', id, prompt}  his message for the running turn (ACP content blocks); out.jsonl gets
+//                          {keeper:true, steered: id, outcome} ('injected' when the agent took it in)
 //   {keeper:'kill'}        stop it now
 
 import { spawn } from 'node:child_process'
@@ -153,6 +155,17 @@ const server = createServer((sock) => {
     if (msg?.keeper === 'cancel') {
       cancelled = true
       if (sessionId) send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } })
+      return
+    }
+    if (msg?.keeper === 'steer' && typeof msg.id === 'string') {
+      const id = msg.id
+      // Only into a turn that's running: otherwise the hub sends it as a turn of its own.
+      if (!sessionId || finished || !Array.isArray(msg.prompt)) return void note({ steered: id, outcome: 'notRunning' })
+      const params = { sessionId, prompt: msg.prompt, _meta: { steering: { idleBehavior: 'promptRequired' } } }
+      void request('_session/steering', params).then(
+        (r) => note({ steered: id, outcome: String(r?.outcome ?? 'failed') }),
+        (e) => note({ steered: id, outcome: 'failed', why: String(e?.message ?? e) }),
+      )
       return
     }
     if (msg?.keeper === 'steer') {

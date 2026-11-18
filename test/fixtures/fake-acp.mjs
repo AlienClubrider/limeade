@@ -15,6 +15,7 @@ const chunk = (text) => update({ sessionUpdate: 'agent_message_chunk', messageId
 const answers = new Map()
 let cancelled = false
 let steered = ''
+let running = false
 
 async function prompt(msg) {
   const text = msg.params.prompt.map((b) => b.text ?? '').join('')
@@ -69,9 +70,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     return
   }
   if (msg.method === '_session/steering') {
-    steered = msg.params.prompt[0].text
+    // FAKE_STEER=refuse: as if the turn had just ended (the adapter's promptRequired fallback).
+    if (!running || process.env.FAKE_STEER === 'refuse') return out({ id: msg.id, result: { outcome: 'promptRequired', reason: 'noRunningTurn' } })
+    steered += (steered ? '; ' : '') + msg.params.prompt[0].text
     return out({ id: msg.id, result: { outcome: 'injected' } })
   }
-  if (msg.method === 'session/prompt') return void prompt(msg)
+  if (msg.method === 'session/prompt') {
+    running = true
+    return void prompt(msg).finally(() => (running = false))
+  }
   if (msg.id !== undefined) out({ id: msg.id, error: { code: -32601, message: 'no' } })
 })

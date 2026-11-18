@@ -6,8 +6,9 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync } from '
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ClaudeCli } from '../src/adapters/claude-cli.ts'
-import type { EngineEvent, TurnRequest } from '../src/ports.ts'
+import { randomUUID } from 'node:crypto'
+import { ClaudeCli, claudeArgs } from '../src/adapters/claude-cli.ts'
+import type { EngineEvent, Steer, TurnRequest } from '../src/ports.ts'
 
 const BIN = fileURLToPath(new URL('./fixtures/fake-claude.sh', import.meta.url))
 const HUB_A = fileURLToPath(new URL('./fixtures/hub-a.ts', import.meta.url))
@@ -104,4 +105,50 @@ test('a plain run streams, answers and tidies its folder', async () => {
   assert.equal(events.filter((e) => e.type === 'text').length, 6)
   for (let i = 0; i < 100 && existsSync(join(dir, handle)); i++) await new Promise((res) => setTimeout(res, 50))
   assert.equal(existsSync(join(dir, handle)), false)
+})
+
+test('a message sent mid-turn goes into the running turn (steering), and Claude answers it in the same turn', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'turns-'))
+  const events: EngineEvent[] = []
+  let took: Promise<boolean> | undefined
+  let steer: Steer | undefined
+  const r = await cliIn(dir).run(req(events, {
+    onSteerable: (s) => (steer = s),
+    onEvent: (e) => {
+      events.push(e)
+      if (e.type === 'text' && e.text === 'one ') took = steer!({ id: randomUUID(), prompt: 'also otters' })
+    },
+  }))
+  assert.equal(await took, true)
+  assert.equal(r.error, undefined)
+  assert.equal(r.text, 'one two three four five six [also otters]')
+})
+
+test('a message that comes as the turn finishes runs as one more round of it, not lost', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'turns-'))
+  const events: EngineEvent[] = []
+  let took: Promise<boolean> | undefined
+  let steer: Steer | undefined
+  const r = await cliIn(dir).run(req(events, {
+    onSteerable: (s) => (steer = s),
+    onEvent: (e) => {
+      events.push(e)
+      if (e.type === 'text' && e.text.startsWith('six')) took = steer!({ id: randomUUID(), prompt: 'and penguins' })
+    },
+  }))
+  assert.equal(await took, true)
+  assert.equal(r.text, 'late: and penguins')
+  const streamed = events.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text).join('')
+  assert.equal(streamed, 'one two three four five six\n\nlate: and penguins')
+})
+
+test('once the turn has ended, a message is refused so the hub sends it as a turn of its own', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'turns-'))
+  let steer: Steer | undefined
+  await cliIn(dir).run(req([], { onSteerable: (s) => (steer = s) }))
+  assert.equal(await steer!({ id: randomUUID(), prompt: 'too late' }), false)
+})
+
+test('the CLI echoes his mid-turn messages, so the hub knows when Claude took one in', () => {
+  assert.ok(claudeArgs({ model: 'opus', effort: 'low', mode: 'auto', sessionId: null }).includes('--replay-user-messages'))
 })

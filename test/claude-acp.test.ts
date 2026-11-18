@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,7 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AcpReplyReader, ClaudeAcp, acpMode, acpPrompt, approvalFor, optionFor, sessionParams } from '../src/adapters/claude-acp.ts'
 import { ChosenEngine } from '../src/adapters/engine-choice.ts'
-import type { EngineEvent, TurnEngine, TurnRequest, TurnResult } from '../src/ports.ts'
+import type { EngineEvent, Steer, TurnEngine, TurnRequest, TurnResult } from '../src/ports.ts'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp.mjs', import.meta.url))
 const HUB = fileURLToPath(new URL('./fixtures/hub-acp.ts', import.meta.url))
@@ -257,4 +258,43 @@ test('a kept turn is picked up by the engine that started it, whatever the setti
   await e.reattach('acp-0b6c2b1e-5a1f-4d6e-9d0c-3f1a2b3c4d5e', req([]))
   assert.deepEqual(calls, ['cli.run', 'acp.run', 'cli.reattach', 'acp.reattach'])
   assert.equal(await acpIn(mkdtempSync(join(tmpdir(), 'turns-'))).reattach('../../etc', req([])), null)
+})
+
+/** Runs a turn, sending `steers` in (one after another) once it has said "two ". */
+async function steeredRun(engine: TurnEngine, steers: string[], over: Partial<TurnRequest> = {}) {
+  const events: EngineEvent[] = []
+  const took: Promise<boolean>[] = []
+  let steer: Steer | undefined
+  const r = await engine.run(req(events, {
+    ...over,
+    onSteerable: (s) => (steer = s),
+    onEvent: (e) => {
+      events.push(e)
+      if (e.type === 'text' && e.text === 'two ') for (const p of steers) took.push(steer!({ id: randomUUID(), prompt: p }))
+    },
+  }))
+  return { r, events, took: await Promise.all(took), steer: steer! }
+}
+
+test('a message sent mid-turn is steered into the running ACP turn, and several go in order', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'turns-'))
+  const log = join(dir, 'fake.log')
+  const { r, took } = await steeredRun(acpIn(dir, log), ['also otters', 'and penguins'])
+  assert.deepEqual(took, [true, true])
+  assert.equal(r.text, 'one two three four five six [also otters; and penguins]')
+  const steering = sent(log).filter((m) => m.method === '_session/steering')
+  assert.deepEqual(steering.map((m) => m.params.prompt), [[{ type: 'text', text: 'also otters' }], [{ type: 'text', text: 'and penguins' }]])
+  // The hub keeps the message if no turn is running, rather than the adapter starting one on its own.
+  assert.equal(steering[0].params._meta.steering.idleBehavior, 'promptRequired')
+  assert.equal(steering[0].params.sessionId, 'fake-acp-sess')
+})
+
+test('a steer the ACP adapter refuses (its turn had ended) is reported not taken, so the hub queues it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'turns-'))
+  const engine = new ClaudeAcp({ adapter: { bin: process.execPath, args: [FAKE] }, claudeBin: '/bin/true', cwd: '/tmp', turnsDir: dir, turnTimeoutMs: 60_000, killGraceMs: 500, env: { FAKE_STEER: 'refuse' } })
+  const { r, took, steer } = await steeredRun(engine, ['one more'])
+  assert.deepEqual(took, [false])
+  assert.equal(r.text, 'one two three four five six')
+  // And after the turn, nothing goes in.
+  assert.equal(await steer({ id: randomUUID(), prompt: 'later' }), false)
 })

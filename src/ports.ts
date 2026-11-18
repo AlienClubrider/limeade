@@ -51,7 +51,23 @@ export interface TurnRequest {
   onEvent: (e: EngineEvent) => void
   /** The turn is running somewhere that outlives the hub; `handle` picks it up again (reattach). */
   onStart?: (handle: string) => void
+  /**
+   * The running turn takes messages from him now (steering): `steer` hands one in. Its promise says
+   * whether the agent took it in (true) or the turn ended without it (false, so the hub runs it as a
+   * turn of its own). Engines that can't steer never call this.
+   */
+  onSteerable?: (steer: Steer) => void
 }
+
+/** A message from him for the turn that's running, with any files sent with it. */
+export interface SteerMessage {
+  id: string
+  prompt: string
+  attachments?: readonly StoredAttachment[]
+}
+
+/** Hands a message to the running turn; false when it can't (the turn is ending). */
+export type Steer = (m: SteerMessage) => Promise<boolean>
 
 export interface TurnResult {
   text: string

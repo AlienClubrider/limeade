@@ -795,7 +795,7 @@ test('a worker chat runs as its persona in its folder, told how to report, with 
   assert.equal(c.get(w.id).renamed, true)
 })
 
-test('a message sent while a reply streams waits below it, and the reply lands above it, not under it', async () => {
+test('with an agent that cannot steer, a message sent while a reply streams waits below it, and the reply lands above it', async () => {
   let finish!: (r: TurnResult) => void
   const claude = new FakeEngine((r) => (!r.prompt.includes('look into it') ? Promise.resolve({ text: `ok: ${r.prompt}`, sessionId: 's' }) : new Promise((resolve) => {
     r.onEvent({ type: 'text', text: 'Found the first part.' })
@@ -835,4 +835,160 @@ test('[quiet] and [needs you] opening later updates of a reply never show; only 
   assert.equal(reply.text, 'Initial update\n\nSecond update\n\nThird update')
   assert.equal(reply.quiet, undefined)
   assert.equal(notices.items.length, 1) // not quiet: it still buzzes
+})
+
+/** A turn that takes his messages as it runs (steering), driven step by step by the test. */
+class SteerEngine extends FakeEngine {
+  turn!: TurnRequest
+  finish!: (r: TurnResult) => void
+  steered: { id: string; prompt: string }[] = []
+  /** How each steer goes: taken in (true) unless the test says otherwise. */
+  takes: (prompt: string) => boolean = () => true
+  constructor() {
+    super((r) => !r.prompt.includes('look into it') ? Promise.resolve({ text: `ok: ${r.prompt}`, sessionId: 's' }) : new Promise((resolve) => {
+      this.turn = r
+      r.onStart?.('turn-s')
+      r.onSteerable?.(async (m) => {
+        this.steered.push({ id: m.id, prompt: m.prompt })
+        return this.takes(m.prompt)
+      })
+      this.finish = resolve
+    }))
+  }
+  async reattach(_handle: string, r: TurnRequest) {
+    r.onEvent({ type: 'resumed', text: 'Found the first part. Now the second.', steps: [{ tool: 'Bash', text: 'ls' }, { tool: 'Read', text: 'b.md' }] })
+    r.onEvent({ type: 'text', text: ' Done.' })
+    return { text: 'Done.', sessionId: 's' }
+  }
+}
+
+const turnStarted = async (e: SteerEngine) => {
+  while (!e.turn) await new Promise((r) => setTimeout(r, 5))
+}
+
+test('a message sent while a reply streams goes into that turn at once, in place, and the reply carries on below it', async () => {
+  const claude = new SteerEngine()
+  const { c } = setup({ claude })
+  const events: [string, any][] = []
+  for (const name of ['message', 'delta']) c.on(name, (e) => events.push([name, e]))
+  const first = await c.send('assistant', 'look into it')
+  await turnStarted(claude)
+  claude.turn.onEvent({ type: 'text', text: '[quiet] Found the first part.' })
+  claude.turn.onEvent({ type: 'step', step: { tool: 'Bash', text: 'ls' } })
+  const follow = await c.send('assistant', 'and the second part?')
+  // Into the running turn: nothing waits, and no second turn is started.
+  assert.deepEqual(claude.steered, [{ id: follow.id, prompt: 'and the second part?' }])
+  assert.deepEqual(c.get('assistant').waiting, [])
+  claude.turn.onEvent({ type: 'text', text: 'Second part done.' })
+  claude.finish({ text: 'Second part done.', sessionId: 's' })
+  await idle(c, 'assistant')
+  const msgs = c.get('assistant').messages
+  assert.deepEqual(msgs.map((m) => [m.role, m.text]), [
+    ['user', 'look into it'],
+    ['assistant', 'Found the first part.'],
+    ['user', 'and the second part?'],
+    ['assistant', 'Second part done.'],
+  ])
+  assert.equal(msgs[0]!.id, first.id)
+  assert.deepEqual(msgs[1]!.steps?.map((s) => s.tool), ['Bash'])
+  assert.equal(msgs[3]!.steps?.length, 0)
+  assert.equal(claude.calls.length, 1)
+  // The app puts the part above his message wherever it already is, and streams the rest as a new reply.
+  const part = events.find(([n, e]) => n === 'message' && e.message.id === msgs[1]!.id)![1]
+  assert.equal(part.before, follow.id)
+  const lastDelta = events.filter(([n]) => n === 'delta').at(-1)![1]
+  assert.deepEqual([lastDelta.messageId, lastDelta.at], [msgs[3]!.id, 0])
+})
+
+test('several messages in a row all go into the running turn, in the order sent', async () => {
+  const claude = new SteerEngine()
+  const { c } = setup({ claude })
+  await c.send('assistant', 'look into it')
+  await turnStarted(claude)
+  claude.turn.onEvent({ type: 'text', text: 'Looking.' })
+  await c.send('assistant', 'one')
+  await c.send('assistant', 'two')
+  claude.turn.onEvent({ type: 'text', text: 'Got both.' })
+  await c.send('assistant', 'three')
+  claude.turn.onEvent({ type: 'text', text: 'Done.' })
+  claude.finish({ text: 'Done.', sessionId: 's' })
+  await idle(c, 'assistant')
+  assert.deepEqual(claude.steered.map((s) => s.prompt), ['one', 'two', 'three'])
+  assert.deepEqual(c.get('assistant').messages.map((m) => [m.role, m.text]), [
+    ['user', 'look into it'],
+    ['assistant', 'Looking.'],
+    ['user', 'one'],
+    ['user', 'two'],
+    ['assistant', 'Got both.'],
+    ['user', 'three'],
+    ['assistant', 'Done.'],
+  ])
+  assert.equal(claude.calls.length, 1)
+})
+
+test('a message the turn never took in runs as a turn of its own after it', async () => {
+  const claude = new SteerEngine()
+  claude.takes = () => false
+  const { c } = setup({ claude })
+  await c.send('assistant', 'look into it')
+  await turnStarted(claude)
+  claude.turn.onEvent({ type: 'text', text: 'Almost done.' })
+  await c.send('assistant', 'one more thing')
+  claude.finish({ text: 'Almost done. Done.', sessionId: 's' })
+  await idle(c, 'assistant')
+  await new Promise((r) => setTimeout(r, 20))
+  await idle(c, 'assistant')
+  assert.deepEqual(c.get('assistant').messages.map((m) => [m.role, m.text]), [
+    ['user', 'look into it'],
+    ['assistant', 'Almost done.'],
+    ['user', 'one more thing'],
+    ['assistant', 'ok: one more thing'],
+  ])
+  assert.equal(claude.calls.at(-1)!.prompt, 'one more thing')
+})
+
+test('a steered turn picked up after a hub restart shows and lands only what came after his message', async () => {
+  const before = new SteerEngine()
+  const { c, store } = setup({ claude: before })
+  await c.send('assistant', 'look into it')
+  await turnStarted(before)
+  while (!store.get('assistant')?.liveTurn) await new Promise((r) => setTimeout(r, 5))
+  before.turn.onEvent({ type: 'text', text: 'Found the first part.' })
+  before.turn.onEvent({ type: 'step', step: { tool: 'Bash', text: 'ls' } })
+  await c.send('assistant', 'and the second?')
+  const live = store.get('assistant')!.liveTurn!
+  assert.deepEqual(live.cut, { text: 'Found the first part.'.length, steps: 1 })
+  await c.close()
+
+  const after = new SteerEngine()
+  const events: [string, any][] = []
+  const c2 = hubWith(store, after)
+  c2.on('live', (e) => events.push(['live', e]))
+  await new Promise((r) => setTimeout(r, 20))
+  await idle(c2, 'assistant')
+  const msgs = c2.get('assistant').messages
+  assert.deepEqual(msgs.map((m) => [m.role, m.text]), [
+    ['user', 'look into it'],
+    ['assistant', 'Found the first part.'],
+    ['user', 'and the second?'],
+    ['assistant', 'Now the second. Done.'],
+  ])
+  assert.equal(msgs[3]!.id, live.replyId)
+  assert.deepEqual(msgs[3]!.steps?.map((s) => s.tool), ['Read'])
+  assert.equal(events[0]![1].text, ' Now the second.')
+})
+
+test('a chat-only model that cannot steer still queues, with its message shown waiting', async () => {
+  // The plain engine never calls onSteerable, like LiteLLM's chat-only turns.
+  let finish!: (r: TurnResult) => void
+  const local = new FakeEngine((r) => (r.prompt !== 'first' ? Promise.resolve({ text: `local: ${r.prompt}`, sessionId: null }) : new Promise((resolve) => { finish = resolve })))
+  const { c } = setup({ local })
+  const chat = await c.create({})
+  await c.send(chat.id, 'first')
+  while (!local.calls.length) await new Promise((r) => setTimeout(r, 5))
+  const next = await c.send(chat.id, 'second')
+  assert.deepEqual(c.get(chat.id).waiting, [next.id])
+  finish({ text: 'one', sessionId: null })
+  await idle(c, chat.id)
+  assert.deepEqual(c.get(chat.id).messages.map((m) => m.text), ['first', 'one', 'second', 'local: second'])
 })

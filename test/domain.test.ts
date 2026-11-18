@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cliPermissionMode, dropTags, notificationText, readQuiet, replySlot, statusLine, stepFor, titleFrom, cleanTitle } from '../src/domain/chat.ts'
+import { afterCut, cliPermissionMode, dropTags, notificationText, readQuiet, replySlot, statusLine, stepFor, titleFrom, cleanTitle } from '../src/domain/chat.ts'
 import { eventMarker, eventsToWake, noticeKindFor, noticeTitle, parseEventLine, parseFleetMode, workerName } from '../src/domain/fleet.ts'
 import { claudeGroup, claudeLabel, historyFor, LOCAL_HISTORY, localGroups, localLabel, parseModelId } from '../src/domain/models.ts'
 import { alwaysLabel, claudeArgs, endpointEnv } from '../src/adapters/claude-cli.ts'
@@ -278,4 +278,13 @@ test('replySlot: a running turn\'s reply goes above the messages still waiting, 
   assert.equal(replySlot([m('a'), m('b'), m('c')], ['b', 'c']), 1)
   assert.equal(replySlot([m('a')], []), 1)
   assert.equal(replySlot([m('a')], ['gone']), 1)
+})
+
+test('after a message he sent into a turn, its reply is the text and steps from the cut on', () => {
+  const steps = [{ tool: 'Bash', text: 'ls' }, { tool: 'Read', text: 'a.md' }, { tool: 'Edit', text: 'b.md' }]
+  assert.deepEqual(afterCut('Done. Next bit.', steps, { text: 6, steps: 1 }), {
+    text: 'Next bit.',
+    steps: [{ tool: 'Read', text: 'a.md' }, { tool: 'Edit', text: 'b.md' }],
+  })
+  assert.deepEqual(afterCut('All of it.', steps, undefined), { text: 'All of it.', steps })
 })

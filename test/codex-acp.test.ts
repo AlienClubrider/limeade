@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AcpReplyReader, approvalFor, optionFor } from '../src/adapters/acp-turns.ts'
 import { CodexAcp, codexCause, codexConfig, codexFailure, codexMode, codexTool, soloCatalog, soloLauncher, type OllamaModel } from '../src/adapters/codex-acp.ts'
-import type { EngineEvent, TurnRequest } from '../src/ports.ts'
+import type { EngineEvent, Steer, TurnRequest } from '../src/ports.ts'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp.mjs', import.meta.url))
 const codexIn = (turnsDir: string, log: string, local?: (name: string) => Promise<OllamaModel | null>, persona?: (id: string) => Promise<string | null>) =>
@@ -183,4 +183,21 @@ test("a refused key says so, with Codex's own words and no secrets; no key still
   assert.match(codexFailure({ error: 'Authentication required' })!, /^Codex isn't signed in on this box \(Authentication required\): sign in/)
   assert.equal(codexFailure({ error: 'model not found' }, { CODEX_API_KEY: 'x' }), undefined)
   assert.equal(codexCause('x'.repeat(400)).length, 300)
+})
+
+test('a message sent mid-turn is steered into the running Codex turn (Codex steers natively)', async () => {
+  const dir = tmp()
+  const log = join(dir, 'fake.log')
+  let steer: Steer | undefined
+  let took: Promise<boolean> | undefined
+  const r = await codexIn(dir, log).run(req([], {
+    onSteerable: (s) => (steer = s),
+    onEvent: (e) => {
+      if (e.type === 'text' && e.text === 'two ') took = steer!({ id: 'm-1', prompt: 'use the staging db' })
+    },
+  }))
+  assert.equal(await took, true)
+  assert.match(r.text, /\[use the staging db\]$/)
+  const s = sent(log).find((m) => m.method === '_session/steering')
+  assert.deepEqual(s.params.prompt, [{ type: 'text', text: 'use the staging db' }])
 })

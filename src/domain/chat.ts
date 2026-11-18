@@ -89,6 +89,26 @@ export interface LiveTurn {
   source: Source
   model: string
   events?: FleetEvent[]
+  /**
+   * Set once he has sent a message into the turn (steering): how much of the turn's text and how many
+   * of its steps were already landed above his latest one. replyId is then the reply after it.
+   */
+  cut?: TurnCut
+}
+
+/** Where a running turn's reply was split by a message he sent into it: its text length and step count. */
+export interface TurnCut {
+  text: number
+  steps: number
+}
+
+/** A running turn's text and steps from a cut on: what the reply below his latest message shows. */
+export function afterCut(text: string, steps: readonly Step[], cut: TurnCut | undefined): { text: string; steps: Step[] } {
+  if (!cut) return { text, steps: [...steps] }
+  return {
+    text: text.slice(cut.text),
+    steps: steps.slice(cut.steps),
+  }
 }
 
 /** A turn waiting its turn: enough to start it again after a restart. */
