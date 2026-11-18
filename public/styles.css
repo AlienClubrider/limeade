@@ -403,8 +403,10 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   .thread { padding: 20px max(24px, calc((100% - var(--read)) / 2)) }
   .chat-composer { width: 100%; max-width: calc(var(--read) + 24px); margin: 0 auto; padding-bottom: 8px }
   /* the list is beside it, so a chat needs no back arrow; phones keep it */
-  .chat-page .pagebar .back { display: none }
-  .chat-page .pagebar { padding-left: 24px }
+  .chat-page:not(.full-page) .pagebar .back { display: none }
+  .chat-page:not(.full-page) .pagebar { padding-left: 24px }
+  /* a worker's conversation covers its page: Back returns there, and there's no list to resize */
+  .chat-page.full-page .list-resizer { display: none }
   #chats { padding: 8px max(0px, calc((100% - 880px) / 2)) 24px }
   .chat-row { border-bottom: 0; border-radius: 12px; box-shadow: inset 0 -1px 0 var(--line) }
   .chat-row .row-item { box-shadow: none; background: transparent }

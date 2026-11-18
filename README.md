@@ -75,7 +75,8 @@ fleet digest | events | ack | task add|set|list
 fleet status <working|paused|needs-decision|blocked|done|failed> "<one line>"   (workers)
 ```
 
-A worker is a chat: it shows on the Chat page, where you can read along or answer it, and on the Workers page.
+A worker is a chat of its own, shown on the Workers page and not in the Chat list: open it there and tap
+**Open conversation** to read along or answer it.
 When a worker reports needs-decision, blocked, done or failed, ends a turn without reporting, fails, or waits
 on an approval, the Assistant gets a message about it and decides what to tell you.
 

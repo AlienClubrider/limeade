@@ -69,10 +69,7 @@ export class HubWorkers implements WorkerSource {
   }
 
   private workers(): ChatState[] {
-    return this.d.conversations
-      .list()
-      .map((s) => this.chat(s.id))
-      .filter((c): c is ChatState => !!c?.worker)
+    return this.d.conversations.workerChats()
   }
 
   private bySlug(slug: string): ChatState | null {

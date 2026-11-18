@@ -219,12 +219,21 @@ export class Conversations extends EventEmitter {
 
   // ---------- reading ----------
 
+  /** His own chats, for the Chat list. Workers' chats show on the Workers page instead. */
   list(): ChatSummary[] {
     return this.d.store
       .list()
-      .filter((c) => c.kind === 'chat')
+      .filter((c) => c.kind === 'chat' && !c.worker)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map((c) => summarize(this.withWhere(c)))
+  }
+
+  /** The chats of the workers the Assistant started. */
+  workerChats(): ChatState[] {
+    return this.d.store
+      .list()
+      .filter((c) => c.kind === 'chat' && c.worker)
+      .map((c) => this.get(c.id))
   }
 
   get(id: string): ChatState {
@@ -297,8 +306,7 @@ export class Conversations extends EventEmitter {
       updatedAt: at,
       messages: [],
     }
-    await this.d.store.save(chat)
-    this.emit('chat', summarize(chat))
+    await this.d.store.save(chat) // not told to the Chat list: it shows on the Workers page
     await this.send(chat.id, o.brief)
     return this.get(chat.id)
   }
@@ -349,7 +357,7 @@ export class Conversations extends EventEmitter {
     }
     const { busy: _busy, ...plain } = next as ChatState
     await this.d.store.save(plain)
-    if (chat.kind === 'chat') this.emit('chat', summarize(plain))
+    if (chat.kind === 'chat' && !chat.worker) this.emit('chat', summarize(plain))
     return { ...plain, busy: chat.busy }
   }
 

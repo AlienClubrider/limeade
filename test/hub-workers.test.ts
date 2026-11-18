@@ -165,3 +165,24 @@ test('fleet keeps jobs and the ack cursor in its folder, and says when it is not
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("a worker the Assistant starts shows on Workers, not in the Chat list; his own chats still do", async () => {
+  const t = setup(async (req) => ({ text: req.env?.FLEET_SLUG ? 'on it' : 'ok', sessionId: 's' }))
+  try {
+    const told: unknown[] = []
+    t.c.on('chat', (e) => told.push(e))
+    const mine = await t.c.create({})
+    const w = await t.workers.start({ persona: 'developer', title: 'Explain the timeline', folder: '/h/dev', brief: 'explain it' })
+    await idle(t.c, w.chatId)
+    await t.c.update(w.chatId, { mode: 'plan' })
+    assert.deepEqual(t.c.list().map((x) => x.id), [mine.id])
+    assert.deepEqual(told.map((e: any) => e.id), [mine.id]) // the open Chat list is never told of it either
+    assert.deepEqual((await t.workers.list()).map((x) => x.id), ['explain-the-timeline'])
+    // Its conversation stays reachable from the worker.
+    const detail = await t.workers.get('explain-the-timeline')
+    assert.equal(detail?.chatId, w.chatId)
+    assert.deepEqual(t.c.get(w.chatId).messages.map((m) => [m.role, m.text]), [['user', 'explain it'], ['assistant', 'on it']])
+  } finally {
+    t.done()
+  }
+})

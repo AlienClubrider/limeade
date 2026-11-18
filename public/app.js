@@ -1264,11 +1264,12 @@ function deleteChat(c) {
 
 /** One chat, as a page: the thread, then the composer with its model, where and mode chips. */
 function openChat(id, fromList = false) {
-  S.panelFor = `c:${id}`
-  paintChats()
+  // From a worker's page it opens over that page; the Chat list's highlight stays as it was.
+  if (fromList) { S.panelFor = `c:${id}`; paintChats() }
   if (!S.places) loadPlaces().then(() => S.openChat?.paintHead())
   openPage((el) => {
     el.classList.add('chat-page')
+    if (!fromList) el.classList.add('full-page') // a worker's conversation covers its page, as that page covers the list
     // On a phone the ask mode lives here, not on the composer row (it's rarely changed).
     const more = h('button', { class: 'hbtn', 'aria-label': 'Chat options', onclick: () => V.chat && chatActions(V.chat, usesTools() ? [modeRow()] : []) }, svg(ICON.more))
     const bar = pageBar('Chat', ' ', more)
@@ -1507,6 +1508,8 @@ function openWorker(summary, fromList = false) {
         h('div', { class: 'when' }, `${{ working: 'Working', paused: 'Paused', 'needs-decision': 'Needs you', blocked: 'Blocked', done: 'Done', failed: 'Failed' }[l.state] || l.state} · ${ago(l.at)}`),
         h('div', { class: 'what' }, l.text))) : h('div', { class: 'meta' }, 'No reports yet.'),
       h('div', { style: 'height:10px' }),
+      w.chatId ? h('button', { class: 'btn ghost wide', onclick: () => openChat(w.chatId) }, 'Open conversation') : null,
+      w.chatId ? h('div', { style: 'height:10px' }) : null,
       h('button', { class: 'btn danger wide', onclick: stop }, 'Stop worker'),
     )
   }, { fromList })
