@@ -93,9 +93,12 @@ export function endpointSettings(name: string, endpoint: LocalEndpoint): { apiKe
   return { apiKeyHelper: '', env: endpointEnv(name, endpoint) }
 }
 
+/** Claude Code's subagent tool (named Task before it was Agent). */
+export const SUBAGENT_TOOLS = ['Agent', 'Task'] as const
+
 /** Builds the CLI arguments for one turn. Never bypassPermissions. */
 export function claudeArgs(
-  req: Pick<TurnRequest, 'model' | 'effort' | 'mode' | 'sessionId' | 'agent' | 'appendSystemPrompt'>,
+  req: Pick<TurnRequest, 'model' | 'effort' | 'mode' | 'sessionId' | 'agent' | 'appendSystemPrompt' | 'noSubagents'>,
   addDirs: readonly string[] = [],
   /** A settings file for the turn (a local model's endpoint): --settings, above the user's own. */
   settingsFile?: string,
@@ -112,6 +115,7 @@ export function claudeArgs(
     '--effort', req.effort,
     ...(req.agent ? ['--agent', req.agent] : []),
     ...(req.appendSystemPrompt ? ['--append-system-prompt', req.appendSystemPrompt] : []),
+    ...(req.noSubagents ? ['--disallowedTools', SUBAGENT_TOOLS.join(',')] : []),
     ...(req.sessionId ? ['--resume', req.sessionId] : []),
     ...addDirs.flatMap((d) => ['--add-dir', d]),
     ...(settingsFile ? ['--settings', settingsFile] : []),

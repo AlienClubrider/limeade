@@ -115,6 +115,7 @@ test('a Claude chat resumes its session and switches model on request', async ()
   assert.equal(claude.calls[1]!.model, 'sonnet')
   assert.equal(claude.calls[1]!.effort, 'high')
   assert.equal(claude.calls[1]!.agent, undefined)
+  assert.equal(claude.calls[1]!.noSubagents, undefined) // Chat-page turns keep their subagents
   await assert.rejects(c.update(chat.id, { model: 'claude:gpt' }), /Unknown model/)
 })
 
@@ -134,6 +135,8 @@ test('the Assistant can run on Fable or a local model', async () => {
   assert.equal(local.calls[0]!.sessionId, 'sess-1') // the same Claude Code session carries on
   assert.equal(local.calls[0]!.prompt, 'two') // a session already running: no fresh-start chores
   assert.equal(local.calls[0]!.agent, 'assistant')
+  assert.equal(claude.calls[0]!.noSubagents, true)
+  assert.equal(local.calls[0]!.noSubagents, true) // a local model's Assistant turn has none either
   assert.equal(c.get('assistant').messages.at(-1)!.text, 'local: two')
   assert.equal(c.get('assistant').claudeSession, 'sess-1') // a chat-only reply (no session) keeps it
 })
@@ -161,6 +164,7 @@ test('the Assistant runs as the assistant agent and starts fresh sessions with t
   await c.send('assistant', 'hello')
   await idle(c, 'assistant')
   assert.equal(claude.calls[0]!.agent, 'assistant')
+  assert.equal(claude.calls[0]!.noSubagents, true) // everything it hands off goes to a worker
   assert.ok(claude.calls[0]!.prompt.startsWith(freshStart(SCRIPTS)))
   assert.match(claude.calls[0]!.appendSystemPrompt!, /~\/bin\/fleet ack/)
   assert.equal(c.get('assistant').mode, 'auto')
@@ -765,7 +769,8 @@ test('with built-in workers the Assistant is told the bundled fleet command, and
   const call = claude.calls[0]!
   assert.match(call.appendSystemPrompt!, /fleet start <agent> "<Title>" <folder> <brief-file>/)
   // Handed-off work goes to visible workers, not subagents the Workers page can't show (issue #6).
-  assert.match(call.appendSystemPrompt!, /your own subagents \(helpers you start inside your turn\) never do\. So any job you hand off goes to a worker/)
+  assert.match(call.appendSystemPrompt!, /You have no subagents of your own here, so any job you hand off goes to a worker/)
+  assert.doesNotMatch(call.appendSystemPrompt!, /quick lookups/)
   assert.match(call.appendSystemPrompt!, /only after `fleet start` succeeded/)
   assert.doesNotMatch(call.appendSystemPrompt!, /~\/bin|\.claude|homelab/i)
   assert.match(call.prompt, /^\(New assistant conversation[^)]*fleet digest/)
@@ -785,6 +790,7 @@ test('a worker chat runs as its persona in its folder, told how to report, with 
   assert.equal(call.prompt, 'Add a dark theme')
   assert.equal(call.appendSystemPrompt, WORKER_NOTE)
   assert.deepEqual(call.env, { FLEET_SLUG: 'dark-theme' })
+  assert.equal(call.noSubagents, undefined) // workers keep their own subagents
   assert.equal(c.get(w.id).title, 'Dark theme')
   assert.equal(c.get(w.id).renamed, true)
 })

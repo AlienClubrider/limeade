@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AcpReplyReader, approvalFor, optionFor } from '../src/adapters/acp-turns.ts'
-import { CodexAcp, codexCause, codexConfig, codexFailure, codexMode, codexTool, type OllamaModel } from '../src/adapters/codex-acp.ts'
+import { CodexAcp, codexCause, codexConfig, codexFailure, codexMode, codexTool, soloCatalog, soloLauncher, type OllamaModel } from '../src/adapters/codex-acp.ts'
 import type { EngineEvent, TurnRequest } from '../src/ports.ts'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp.mjs', import.meta.url))
@@ -32,6 +32,39 @@ test("Codex's config: its own model and effort, or a local model on its Ollama m
   assert.equal(local.model, 'gemma4:26b')
   assert.equal(local.model_provider, 'limeade-ollama')
   assert.deepEqual(local.model_providers['limeade-ollama'], { name: 'Ollama on MacBook Pro', base_url: 'http://10.0.0.2:11434/v1', wire_api: 'responses' })
+  assert.equal(local.features, undefined)
+})
+
+test('an Assistant turn on Codex has its multi_agent feature (spawning helpers) off; other turns keep it', () => {
+  assert.deepEqual(codexConfig({ model: 'gpt-6-astra', effort: 'low', noSubagents: true }, null), { model: 'gpt-6-astra', model_reasoning_effort: 'low', features: { multi_agent: false, multi_agent_v2: false } })
+  const local = codexConfig({ model: 'mac-gemma4-26b', effort: 'low', noSubagents: true }, { url: 'http://10.0.0.2:11434/', tag: 'gemma4:26b', machine: 'MacBook Pro' }) as any
+  assert.deepEqual(local.features, { multi_agent: false, multi_agent_v2: false })
+})
+
+test("Codex's solo catalog marks no model multi-agent and keeps everything else", () => {
+  const out = JSON.parse(soloCatalog(JSON.stringify({ models: [{ slug: 'gpt-6-astra', tool_mode: 'code_mode_only', multi_agent_version: 'v2', multi_agent_reasoning_effort: 'xhigh' }, { slug: 'gpt-5.5' }] })))
+  assert.deepEqual(out, { models: [{ slug: 'gpt-6-astra', tool_mode: 'code_mode_only' }, { slug: 'gpt-5.5' }] })
+  assert.throws(() => soloCatalog('{}'), /no models/)
+  assert.equal(soloLauncher("/opt/it's/codex", '/t/solo.json'), `#!/bin/sh\nexec '/opt/it'\\''s/codex' -c 'model_catalog_json="/t/solo.json"' "$@"\n`)
+})
+
+test('an Assistant turn starts Codex on the solo catalog, read fresh from Codex; a Chat turn starts it as is', async () => {
+  const dir = tmp()
+  const log = join(dir, 'fake.log')
+  const models = async () => JSON.stringify({ models: [{ slug: 'gpt-6.1-sol', multi_agent_version: 'v2' }] })
+  const codex = new CodexAcp({ adapter: { bin: process.execPath, args: [FAKE] }, codexBin: '/bin/true', cwd: '/tmp', turnsDir: dir, turnTimeoutMs: 60_000, killGraceMs: 500, env: { FAKE_ACP_LOG: log }, models })
+  assert.equal((await codex.run(req([], { noSubagents: true }))).error, undefined)
+  const cfg = JSON.parse(sent(log).find((m) => m.env)!.env.CODEX_CONFIG)
+  assert.deepEqual(cfg.features, { multi_agent: false, multi_agent_v2: false })
+  const launcher = sent(log).find((m) => m.env)!.env.CODEX_PATH
+  assert.equal(launcher, join(dir, 'codex-solo'))
+  assert.equal(readFileSync(launcher, 'utf8'), soloLauncher('/bin/true', join(dir, 'codex-solo-models.json')))
+  assert.ok(statSync(launcher).mode & 0o100)
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'codex-solo-models.json'), 'utf8')), { models: [{ slug: 'gpt-6.1-sol' }] })
+  writeFileSync(log, '')
+  assert.equal((await codex.run(req([]))).error, undefined)
+  assert.deepEqual(JSON.parse(sent(log).find((m) => m.env)!.env.CODEX_CONFIG), { model: 'gpt-6.1-sol', model_reasoning_effort: 'high' })
+  assert.equal(sent(log).find((m) => m.env)!.env.CODEX_PATH, '/bin/true')
 })
 
 test("Codex's tool calls read as the app's steps (as Codex 2.7's adapter sends them)", () => {

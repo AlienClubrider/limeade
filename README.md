@@ -80,8 +80,8 @@ When a worker reports needs-decision, blocked, done or failed, ends a turn witho
 on an approval, the Assistant gets a message about it and decides what to tell you.
 
 The Assistant is told to hand off every job you'd follow to a worker, and to say a job has started only once
-`fleet start` succeeded. Its agent's own subagents (helpers inside one of its turns) don't show on the Workers
-page; they only show as steps in the Assistant's chat.
+`fleet start` succeeded. Its agent's own subagents (helpers inside one of its turns, which the Workers page can't
+show) are switched off in the Assistant, on Claude Code and on Codex; workers and Chat-page chats keep theirs.
 
 ## Use it from your phone (optional)
 

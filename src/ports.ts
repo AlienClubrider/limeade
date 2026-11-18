@@ -43,6 +43,8 @@ export interface TurnRequest {
   /** Claude Code agent to run as (the Assistant). */
   agent?: string
   appendSystemPrompt?: string
+  /** No subagents of the agent's own (the Assistant: everything it hands off goes to a worker the user can see). */
+  noSubagents?: boolean
   /** Extra environment for this turn's agent (a worker's FLEET_SLUG). */
   env?: Record<string, string>
   signal: AbortSignal

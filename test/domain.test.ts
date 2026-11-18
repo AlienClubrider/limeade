@@ -124,6 +124,12 @@ test('claude args never bypass permissions and resume the session', () => {
   assert.ok(!claudeArgs({ model: 'haiku', effort: 'low', mode: 'auto', sessionId: null }).includes('--resume'))
 })
 
+test('an Assistant turn on the CLI has no subagent tool; other turns keep it', () => {
+  const args = claudeArgs({ model: 'opus', effort: 'high', mode: 'auto', sessionId: null, agent: 'assistant', noSubagents: true })
+  assert.equal(args[args.indexOf('--disallowedTools') + 1], 'Agent,Task')
+  assert.ok(!claudeArgs({ model: 'opus', effort: 'high', mode: 'auto', sessionId: null, agent: 'developer' }).includes('--disallowedTools'))
+})
+
 test('"don\'t ask again" label comes from the CLI suggestion', () => {
   assert.equal(alwaysLabel([{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm run test:*' }] }]), 'npm run test:*')
   assert.equal(alwaysLabel([{ type: 'addDirectories', directories: ['/tmp/x'] }]), 'files in /tmp/x')

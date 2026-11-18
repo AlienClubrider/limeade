@@ -39,6 +39,9 @@ test('session params carry model, effort, agent, the Assistant note and the uplo
   assert.equal(plain.cwd, '/w')
   assert.equal(plain._meta.systemPrompt, undefined)
   assert.equal(plain._meta.claudeCode.options.agent, undefined)
+  assert.equal(plain._meta.claudeCode.options.disallowedTools, undefined) // Chat and workers keep subagents
+  const assistant = sessionParams({ model: 'opus', effort: 'high', agent: 'assistant', noSubagents: true }, { cwd: '/w' }) as any
+  assert.deepEqual(assistant._meta.claudeCode.options.disallowedTools, ['Agent', 'Task'])
 })
 
 test('photos go as ACP image blocks before the text', () => {

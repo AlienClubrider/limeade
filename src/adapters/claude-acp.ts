@@ -7,7 +7,7 @@ import type { Mode } from '../domain/chat.ts'
 import type { TurnRequest } from '../ports.ts'
 import type { AcpTurnSpec } from './acp-keeper.ts'
 import { AcpReplyReader as Reader, AcpTurns, approvalFor as approvalWith, packageEntry, type AcpAgent, type AcpTool, type AcpTurnsOptions } from './acp-turns.ts'
-import { endpointEnv, endpointModel, endpointSettings, type LocalEndpoint } from './claude-cli.ts'
+import { endpointEnv, endpointModel, endpointSettings, SUBAGENT_TOOLS, type LocalEndpoint } from './claude-cli.ts'
 
 export { acpPrompt, onPath, optionFor } from './acp-turns.ts'
 
@@ -33,7 +33,7 @@ export function acpMode(mode: Mode): string {
 
 /** The session/new (and session/resume) params for a turn. Options go to Claude Code as the CLI's flags would. */
 export function sessionParams(
-  req: Pick<TurnRequest, 'model' | 'effort' | 'agent' | 'appendSystemPrompt' | 'cwd'>,
+  req: Pick<TurnRequest, 'model' | 'effort' | 'agent' | 'appendSystemPrompt' | 'cwd' | 'noSubagents'>,
   o: { cwd: string; addDirs?: readonly string[]; endpoint?: LocalEndpoint },
 ): AcpTurnSpec['session'] {
   return {
@@ -50,6 +50,7 @@ export function sessionParams(
           // A predicted next prompt per turn: the hub doesn't show it, so don't spend on it.
           promptSuggestions: false,
           ...(req.agent ? { agent: req.agent } : {}),
+          ...(req.noSubagents ? { disallowedTools: [...SUBAGENT_TOOLS] } : {}),
         },
       },
       ...(req.appendSystemPrompt ? { systemPrompt: { append: req.appendSystemPrompt } } : {}),

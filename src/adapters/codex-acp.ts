@@ -3,7 +3,10 @@
 // does; this file is what's Codex's own: its modes, its config (model, effort, a local model's machine) and
 // how its tool calls read.
 
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Mode } from '../domain/chat.ts'
 import type { TurnRequest } from '../ports.ts'
 import type { AcpTurnSpec } from './acp-keeper.ts'
@@ -31,6 +34,11 @@ export interface CodexAcpOptions extends AcpTurnsOptions {
   local?: (name: string) => Promise<OllamaModel | null>
   /** A persona's instructions (the Assistant's), for a turn that runs as one; null when there's none. */
   persona?: (id: string) => Promise<string | null>
+  /**
+   * Codex's model catalog as JSON (`codex debug models`), for turns without subagents. Defaults to asking
+   * the Codex CLI.
+   */
+  models?: (env: NodeJS.ProcessEnv) => Promise<string>
 }
 
 /** The adapter's own entry point, from the installed package. */
@@ -47,14 +55,48 @@ export function codexMode(mode: Mode): { modeId: string; config: NonNullable<Acp
   return { modeId, config: [{ configId: 'collaboration_mode', value: mode === 'plan' ? 'plan' : 'default' }] }
 }
 
-/** Codex's config for one turn (the adapter's CODEX_CONFIG): the model and effort, or a local model's machine. */
-export function codexConfig(req: Pick<TurnRequest, 'model' | 'effort'>, local: OllamaModel | null): Record<string, unknown> {
-  if (!local) return { model: req.model, model_reasoning_effort: req.effort }
+/**
+ * Codex's config for one turn (the adapter's CODEX_CONFIG): the model and effort, or a local model's machine,
+ * and with noSubagents its multi_agent features off. That alone isn't enough: see soloCatalog.
+ */
+export function codexConfig(req: Pick<TurnRequest, 'model' | 'effort' | 'noSubagents'>, local: OllamaModel | null): Record<string, unknown> {
+  const features = req.noSubagents ? { features: { multi_agent: false, multi_agent_v2: false } } : {}
+  if (!local) return { model: req.model, model_reasoning_effort: req.effort, ...features }
   return {
+    ...features,
     model: local.tag,
     model_provider: LOCAL_PROVIDER,
     model_providers: { [LOCAL_PROVIDER]: { name: `Ollama on ${local.machine}`, base_url: `${local.url.replace(/\/$/, '')}/v1`, wire_api: 'responses' } },
   }
+}
+
+/**
+ * Codex's model catalog with no model marked multi-agent. A model the catalog marks multi-agent (gpt-6-astra
+ * and most others in codex-cli 0.166) gets the spawn-agent tools whatever the multi_agent features say, and
+ * the catalog only counts when Codex starts (the adapter's CODEX_CONFIG is per thread), so turns without
+ * subagents start Codex through soloLauncher.
+ */
+export function soloCatalog(json: string): string {
+  const catalog = JSON.parse(json)
+  if (!Array.isArray(catalog?.models)) throw new Error("Codex's model catalog has no models")
+  for (const m of catalog.models) {
+    delete m.multi_agent_version
+    delete m.multi_agent_reasoning_effort
+  }
+  return JSON.stringify(catalog)
+}
+
+/** A shell script that runs Codex on the given catalog (`-c model_catalog_json=…`), passing everything else on. */
+export function soloLauncher(codexBin: string, catalog: string): string {
+  const sh = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+  return `#!/bin/sh\nexec ${sh(codexBin)} -c ${sh(`model_catalog_json=${JSON.stringify(catalog)}`)} "$@"\n`
+}
+
+function codexModels(bin: string): (env: NodeJS.ProcessEnv) => Promise<string> {
+  return (env) => new Promise((resolve, reject) => {
+    execFile(bin, ['debug', 'models'], { env, timeout: 20_000, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) =>
+      err ? reject(new Error(`Codex couldn't list its models: ${codexCause(String(stderr || err.message))}`)) : resolve(stdout))
+  })
 }
 
 /**
@@ -141,6 +183,13 @@ export function codexFailure(e: { error?: string; stage?: string }, env: NodeJS.
   return `Codex isn't signed in on this box (${cause}): sign in under Settings › Agents, or pick a local model`
 }
 
+/** Writes a file whole, so a Codex starting at the same moment never reads half of it. */
+async function replaceFile(path: string, text: string, mode = 0o644): Promise<void> {
+  const tmp = `${path}.${process.pid}.${Date.now()}`
+  await writeFile(tmp, text, { mode })
+  await rename(tmp, path)
+}
+
 function codexAgent(o: CodexAcpOptions): AcpAgent {
   return {
     name: 'Codex',
@@ -153,9 +202,19 @@ function codexAgent(o: CodexAcpOptions): AcpAgent {
       if (req.agent && !persona) throw new Error(`Codex has no ${req.agent} agent on this box: add it on the Agents page`)
       const { modeId, config } = codexMode(req.mode)
       const env = { ...process.env, ...o.env }
+      // No subagents: Codex starts on a catalog without multi-agent models, read fresh each turn (it's quick)
+      // so it never lags Codex's own list. A local model isn't in the catalog.
+      let codexPath = o.codexBin
+      if (req.noSubagents && !local) {
+        await mkdir(o.turnsDir, { recursive: true })
+        const catalog = join(o.turnsDir, 'codex-solo-models.json')
+        codexPath = join(o.turnsDir, 'codex-solo')
+        await replaceFile(catalog, soloCatalog(await (o.models ?? codexModels(o.codexBin))(env)))
+        await replaceFile(codexPath, soloLauncher(o.codexBin, catalog), 0o755)
+      }
       return {
         env: {
-          CODEX_PATH: o.codexBin,
+          CODEX_PATH: codexPath,
           CODEX_CONFIG: JSON.stringify(codexConfig(req, local)),
           // No browser sign-in from a server, and no predicted next prompts (the app doesn't show them).
           NO_BROWSER: '1',
