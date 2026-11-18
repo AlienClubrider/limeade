@@ -4,7 +4,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import {
-  ASSISTANT_ID, handoverPrompt, isEffort, isMode, notificationText, readQuiet, summarize, cleanTitle, titleFrom, titleRequest, trimThread,
+  ASSISTANT_ID, dropTags, handoverPrompt, isEffort, isMode, notificationText, readQuiet, replySlot, summarize, cleanTitle, titleFrom, titleRequest, trimThread,
   type Chat, type ChatSummary, type LiveTurn, type Message, type QueuedTurn, type Source, type Step, type WorkerInfo,
 } from '../domain/chat.ts'
 import { eventMarker, eventsToWake, noticeKindFor, noticeTitle, wakeMessage, type FleetEvent } from '../domain/fleet.ts'
@@ -91,6 +91,8 @@ export interface PendingApproval extends ApprovalRequest {
 
 export interface ChatState extends Chat {
   busy: boolean
+  /** His messages still waiting behind the running turn (sent while it ran): it shows above them. */
+  waiting?: string[]
   /** The running turn so far, so a page that (re)loads mid-reply shows all of it. */
   live?: LiveText
 }
@@ -195,7 +197,7 @@ export class Conversations extends EventEmitter {
       if (live && engine?.reattach) this.pickUp(chat.id, live, engine)
       else if (chat.turnRunning) {
         void this.chain(chat.id, async () => {
-          await this.addMessage(chat.id, this.newMessage('error', 'system', RESTARTED))
+          await this.addTurnMessage(chat.id, this.newMessage('error', 'system', RESTARTED))
           await this.markTurn(chat.id, false)
         })
       }
@@ -222,7 +224,7 @@ export class Conversations extends EventEmitter {
     const chat = id === ASSISTANT_ID ? this.assistant() : this.d.store.get(id)
     if (!chat) throw new HubError(404, 'No such chat')
     const live = this.live.get(id)
-    return { ...this.withWhere(chat), busy: this.running.has(id) || this.queuedFor(id), ...(live ? { live: { ...live, steps: [...live.steps] } } : {}) }
+    return { ...this.withWhere(chat), busy: this.running.has(id) || this.queuedFor(id), waiting: this.waiting(id), ...(live ? { live: { ...live, steps: [...live.steps] } } : {}) }
   }
 
   pendingApprovals(): PendingApproval[] {
@@ -392,8 +394,9 @@ export class Conversations extends EventEmitter {
     const title = chat.kind === 'chat' && !chat.renamed && chat.messages.length === 0 ? titleFrom(text || files[0]!.name) : chat.title
     await this.save(id, (c) => ({ ...c, title, messages: [...c.messages, message] }))
     if (title !== chat.title) this.emit('chat', summarize(this.d.store.get(id)!))
-    this.emit('message', { chatId: id, message })
+    // Queued first, so the app knows it waits (when a turn is running) as soon as it shows.
     void this.enqueue(id, 'chat', message.text, [], message.id, files)
+    this.emit('message', { chatId: id, message })
     // He answered: open questions and "look at this" items are done.
     if (id === ASSISTANT_ID) await this.clearInbox((i) => i.kind !== 'approval')
     return message
@@ -488,6 +491,17 @@ export class Conversations extends EventEmitter {
     return (this.pending.get(id) ?? 0) > 0
   }
 
+  /** His messages still waiting behind the running turn, by id. */
+  private waiting(id: string): string[] {
+    const chat = id === ASSISTANT_ID ? this.assistant() : this.d.store.get(id)
+    return (chat?.queuedTurns ?? []).flatMap((q) => (q.userMessageId ? [q.userMessageId] : []))
+  }
+
+  /** 'busy', with the messages still waiting, so the app shows the running reply above them. */
+  private emitBusy(id: string, busy: boolean) {
+    this.emit('busy', { chatId: id, busy, waiting: this.waiting(id) })
+  }
+
   private chain<T>(id: string, work: () => Promise<T>): Promise<T> {
     const run = (this.tails.get(id) ?? Promise.resolve()).then(work)
     const tail = run.catch(() => undefined)
@@ -516,7 +530,7 @@ export class Conversations extends EventEmitter {
 
   private queue(id: string, q: QueuedTurn, attachments?: readonly StoredAttachment[]): Promise<void> {
     this.pending.set(id, (this.pending.get(id) ?? 0) + 1)
-    this.emit('busy', { chatId: id, busy: true })
+    this.emitBusy(id, true)
     return this.chain(id, async () => {
       let counted = true
       try {
@@ -527,10 +541,11 @@ export class Conversations extends EventEmitter {
         this.pending.set(id, (this.pending.get(id) ?? 1) - 1)
         counted = false
         void this.save(id, (c) => ({ ...c, queuedTurns: c.queuedTurns?.filter((x) => x.id !== q.id) })).catch(() => undefined)
+        if (q.userMessageId) this.emitBusy(id, true) // its message no longer waits
         await this.runTurn(id, q.source, q.prompt, q.events ?? [], q.userMessageId, files)
       } finally {
         if (counted) this.pending.set(id, (this.pending.get(id) ?? 1) - 1)
-        if (!this.queuedFor(id) && !this.kept.has(id)) this.emit('busy', { chatId: id, busy: false })
+        if (!this.queuedFor(id) && !this.kept.has(id)) this.emitBusy(id, false)
       }
     })
   }
@@ -601,7 +616,7 @@ export class Conversations extends EventEmitter {
   private pickUp(id: string, live: LiveTurn, engine: TurnEngine) {
     this.pending.set(id, (this.pending.get(id) ?? 0) + 1)
     this.kept.add(id)
-    this.emit('busy', { chatId: id, busy: true })
+    this.emitBusy(id, true)
     void this.chain(id, async () => {
       this.pending.set(id, (this.pending.get(id) ?? 1) - 1)
       try {
@@ -616,7 +631,7 @@ export class Conversations extends EventEmitter {
           return result && { ...result, agent }
         })
       } finally {
-        if (!this.queuedFor(id) && !this.kept.has(id)) this.emit('busy', { chatId: id, busy: false })
+        if (!this.queuedFor(id) && !this.kept.has(id)) this.emitBusy(id, false)
       }
     })
   }
@@ -645,18 +660,18 @@ export class Conversations extends EventEmitter {
         return
       }
       if (!result) {
-        await this.addMessage(id, this.newMessage('error', source, RESTARTED))
+        await this.addTurnMessage(id, this.newMessage('error', source, RESTARTED))
         return
       }
       if (this.closing) {
         // The hub is going down: keep what it said so far as a normal reply, then say it didn't finish.
-        if (result.text.trim()) await this.addMessage(id, { ...this.newMessage('assistant', source, result.text), id: replyId, steps, model: t.model })
-        await this.addMessage(id, this.newMessage('error', source, RESTARTED))
+        if (result.text.trim()) await this.addTurnMessage(id, { ...this.newMessage('assistant', source, result.text), id: replyId, steps, model: t.model })
+        await this.addTurnMessage(id, this.newMessage('error', source, RESTARTED))
         return
       }
       await this.land(id, chat, { ...t, steps, stopped: ctl.signal.aborted }, result)
     } catch (err) {
-      await this.addMessage(id, { ...this.newMessage('error', source, `That didn't work: ${(err as Error).message}`), id: replyId })
+      await this.addTurnMessage(id, { ...this.newMessage('error', source, `That didn't work: ${(err as Error).message}`), id: replyId })
     } finally {
       if (!handedOver) {
         this.running.delete(id)
@@ -691,9 +706,11 @@ export class Conversations extends EventEmitter {
     }
     const unquiet = readQuiet(result.text)
     const quiet = unquiet.quiet
-    const { text, needs } = isAssistant ? readNeeds(unquiet.text) : { text: unquiet.text, needs: null }
+    const read = isAssistant ? readNeeds(unquiet.text) : { text: unquiet.text, needs: null }
+    const { needs } = read
+    const text = dropTags(read.text)
     if (result.error && !text && !stopped) {
-      await this.addMessage(id, { ...this.newMessage('error', source, `That didn't work: ${result.error}`), id: replyId, steps })
+      await this.addTurnMessage(id, { ...this.newMessage('error', source, `That didn't work: ${result.error}`), id: replyId, steps })
       return
     }
     const reply: Message = {
@@ -703,11 +720,11 @@ export class Conversations extends EventEmitter {
       model: t.model,
       ...(quiet ? { quiet } : {}),
     }
-    await this.addMessage(id, reply)
+    await this.addTurnMessage(id, reply)
     if (chat.kind === 'chat' && !chat.renamed && text && !stopped && !result.error) void this.autoTitle(id, reply.id)
     // A failure is always said out loud in the thread, even after partial text.
     if (result.error && !stopped) {
-      await this.addMessage(id, this.newMessage('error', source, `That didn't finish: ${result.error}`))
+      await this.addTurnMessage(id, this.newMessage('error', source, `That didn't finish: ${result.error}`))
       await this.notify({ kind: 'reply', title: chat.kind === 'assistant' ? 'Assistant' : chat.title, body: `That didn't finish: ${result.error}`, chatId: id })
     } else if (needs && !stopped) {
       // It needs him: into the bell, and buzz as "a worker needs me" whatever the source.
@@ -832,6 +849,21 @@ export class Conversations extends EventEmitter {
     if (id !== ASSISTANT_ID && !this.d.store.get(id)) return // deleted mid-turn
     await this.save(id, (c) => ({ ...c, messages: [...c.messages, message] }))
     this.emit('message', { chatId: id, message })
+  }
+
+  /**
+   * What a running turn says (its reply, or why it failed): where it was on screen, above his messages
+   * still waiting their turn, not under them. `before` tells the app where it goes.
+   */
+  private async addTurnMessage(id: string, message: Message) {
+    if (id !== ASSISTANT_ID && !this.d.store.get(id)) return // deleted mid-turn
+    let before: string | undefined
+    await this.save(id, (c) => {
+      const at = replySlot(c.messages, this.waiting(id))
+      before = c.messages[at]?.id
+      return { ...c, messages: [...c.messages.slice(0, at), message, ...c.messages.slice(at)] }
+    })
+    this.emit('message', { chatId: id, message, ...(before ? { before } : {}) })
   }
 
   private newMessage(role: Message['role'], source: Source, text: string): Message {

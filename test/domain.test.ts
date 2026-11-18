@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cliPermissionMode, notificationText, readQuiet, statusLine, stepFor, titleFrom, cleanTitle } from '../src/domain/chat.ts'
+import { cliPermissionMode, dropTags, notificationText, readQuiet, replySlot, statusLine, stepFor, titleFrom, cleanTitle } from '../src/domain/chat.ts'
 import { eventMarker, eventsToWake, noticeKindFor, noticeTitle, parseEventLine, parseFleetMode, workerName } from '../src/domain/fleet.ts'
 import { claudeGroup, claudeLabel, historyFor, LOCAL_HISTORY, localGroups, localLabel, parseModelId } from '../src/domain/models.ts'
 import { alwaysLabel, claudeArgs, endpointEnv } from '../src/adapters/claude-cli.ts'
@@ -256,4 +256,20 @@ test("LiteLLM says which Ollama machine and model a local model's name is", asyn
   assert.deepEqual(await l.ollamaModel('mac-gemma4-26b'), { url: 'http://mac:11434', tag: 'gemma4:26b', machine: 'MacBook Pro' })
   assert.deepEqual(await l.ollamaModel('old'), { url: 'http://gpu:11434', tag: 'qwen2.5:7b', machine: 'this server' })
   assert.equal(await l.ollamaModel('nope'), null)
+})
+
+test('dropTags: tags opening any paragraph go; tags in a sentence or in code stay', () => {
+  assert.equal(dropTags('Initial update\n\n[quiet] Second update\n\n[quiet] Third update'), 'Initial update\n\nSecond update\n\nThird update')
+  assert.equal(dropTags('One\n\n[QUIET] [needs you] Two'), 'One\n\nTwo')
+  assert.equal(dropTags('One\n\n[quiet]\nTwo'), 'One\n\nTwo')
+  assert.equal(dropTags('Start a reply with [quiet] when\n[quiet] mid-paragraph stays'), 'Start a reply with [quiet] when\n[quiet] mid-paragraph stays')
+  assert.equal(dropTags('Example:\n\n```\n[quiet] Routine\n\n[quiet] Done\n```'), 'Example:\n\n```\n[quiet] Routine\n\n[quiet] Done\n```')
+  assert.equal(dropTags('> [quiet] quoted'), '> [quiet] quoted')
+})
+
+test('replySlot: a running turn\'s reply goes above the messages still waiting, else at the end', () => {
+  const m = (id: string) => ({ id, at: '', role: 'user' as const, source: 'chat' as const, text: id })
+  assert.equal(replySlot([m('a'), m('b'), m('c')], ['b', 'c']), 1)
+  assert.equal(replySlot([m('a')], []), 1)
+  assert.equal(replySlot([m('a')], ['gone']), 1)
 })

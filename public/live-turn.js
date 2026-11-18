@@ -31,18 +31,43 @@
   }
 
   /**
-   * The running reply as shown: without the assistant's leading "[quiet]" / "[needs you]" tags, which the
-   * hub strips from a finished reply (readQuiet, readNeeds); the live text keeps them, since streamed pieces
-   * point into it by position. A tag still arriving in pieces ("[qui") shows as nothing until it is whole.
+   * The running reply as shown: without the assistant's "[quiet]" / "[needs you]" tags where a paragraph
+   * starts, as the hub drops them from a finished reply (readQuiet, readNeeds, dropTags); the live text keeps
+   * them, since streamed pieces point into it by position. Later updates in one turn may carry them too.
+   * Code blocks and tags inside a sentence stay. A tag still arriving in pieces ("…\n\n[qui") shows as
+   * nothing until it is whole.
    */
-  const TAGS = /^(\s*\[(quiet|needs you)\]\s*)+/i
+  const TAG = /^([ \t]*)(\[(?:quiet|needs you)\][ \t]*)+/i
+  const TAG_NAMES = ['[quiet]', '[needs you]']
   function untag(text) {
-    const rest = (text || '').replace(TAGS, '').trim()
-    const low = rest.toLowerCase()
-    return low && ['[quiet]', '[needs you]'].some((t) => t.startsWith(low)) ? '' : rest
+    const out = []
+    let fenced = false
+    let starts = true
+    for (const line of (text || '').split('\n')) {
+      if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
+      const bare = !fenced && starts ? line.replace(TAG, '$1') : line
+      if (bare !== line && !bare.trim()) continue
+      out.push(bare)
+      starts = !line.trim()
+    }
+    const rest = out.join('\n').trim()
+    if (fenced) return rest
+    const para = rest.split(/\n[ \t]*\n/)
+    const last = para[para.length - 1].trim().toLowerCase()
+    if (last && TAG_NAMES.some((t) => t.startsWith(last))) return para.slice(0, -1).join('\n\n').trim()
+    return rest
   }
 
-  const api = { settle, addPiece, untag }
+  /**
+   * Where the running turn shows in the thread: above his messages still waiting their turn (sent while
+   * it ran), so what was already on screen keeps its order. The hub lands the reply in the same place.
+   */
+  function slot(messages, waiting) {
+    const i = (messages || []).findIndex((m) => (waiting || []).includes(m.id))
+    return i < 0 ? (messages || []).length : i
+  }
+
+  const api = { settle, addPiece, untag, slot }
   if (typeof window !== 'undefined') window.liveTurn = api
   if (typeof module !== 'undefined') module.exports = api
 })()

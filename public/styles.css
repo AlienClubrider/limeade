@@ -134,6 +134,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .attach-pick svg { width: 24px; height: 24px }
 .sent { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin: 4px 0 14px 48px; max-width: calc(100% - 48px) }
 .sent .bubble { margin: 0 }
+.sent.queued > .sent { margin: 0; max-width: 100% }
+.queued-note { color: var(--faint); font-size: 13px }
 .sent-files { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px }
 .thumb { display: block; width: 132px; height: 132px; border-radius: 16px; overflow: hidden; background: var(--surface2); border: 1px solid var(--line) }
 .sent-files .thumb:only-child { width: auto; height: auto; max-width: min(260px, 100%); max-height: 300px }

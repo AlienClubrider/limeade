@@ -63,3 +63,18 @@ test('live turn: the assistant\'s [quiet] and [needs you] tags never show in the
   assert.equal(liveTurn.untag('[quick note]'), '[quick note]')
   assert.equal(liveTurn.untag(undefined), '')
 })
+
+test('live turn: tags opening later updates in one turn never show, even arriving in pieces, but code keeps them', () => {
+  assert.equal(liveTurn.untag('Initial update\n\n[quiet] Second update\n\n[quiet] Third update'), 'Initial update\n\nSecond update\n\nThird update')
+  for (const piece of ['[', '[qui', '[quiet', '[needs y']) assert.equal(liveTurn.untag(`Initial update\n\n${piece}`), 'Initial update')
+  const code = 'See:\n\n```\n[quiet] Routine\n```'
+  assert.equal(liveTurn.untag(code), code)
+  assert.equal(liveTurn.untag('Said [quiet] in passing'), 'Said [quiet] in passing')
+})
+
+test('live turn: the running reply shows above his messages still waiting their turn, else at the end', () => {
+  const msgs = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  assert.equal(liveTurn.slot(msgs, ['b', 'c']), 1)
+  assert.equal(liveTurn.slot(msgs, []), 3)
+  assert.equal(liveTurn.slot(msgs, undefined), 3)
+})

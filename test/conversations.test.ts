@@ -488,9 +488,10 @@ test('a hub stopping mid-turn keeps a chat-only turn\'s interim text and says it
   await c.send('assistant', 'and the GPU?') // queued behind it: kept for the next hub
   await c.close()
   const msgs = c.get('assistant').messages
-  assert.deepEqual(msgs.map((m) => m.role), ['user', 'user', 'assistant', 'error'])
-  assert.equal(msgs[2]!.text, 'Both Mac models are in. Checking the GPU:')
-  assert.equal(msgs[3]!.text, RESTARTED)
+  // What it said stays above the message still waiting its turn.
+  assert.deepEqual(msgs.map((m) => m.role), ['user', 'assistant', 'error', 'user'])
+  assert.equal(msgs[1]!.text, 'Both Mac models are in. Checking the GPU:')
+  assert.equal(msgs[2]!.text, RESTARTED)
   assert.equal(claude.calls.length, 1)
   assert.equal(store.get('assistant')!.turnRunning, undefined)
   assert.deepEqual(store.get('assistant')!.queuedTurns?.map((q) => q.prompt), ['and the GPU?'])
@@ -548,12 +549,12 @@ test('a Claude Code turn outlives a hub restart: the next hub lands its reply, n
   const msgs = c2.get('assistant').messages
   assert.deepEqual(msgs.map((m) => [m.role, m.text]), [
     ['user', 'ship it and restart the hub'],
-    ['user', 'then check the logs'],
     ['assistant', 'Shipped. Restarting the hub now. Done.'],
+    ['user', 'then check the logs'],
     ['assistant', 'ok: then check the logs'],
   ])
-  assert.equal(msgs[2]!.id, live.replyId) // the same bubble the app was streaming
-  assert.equal(msgs[2]!.steps?.[0]?.tool, 'Bash')
+  assert.equal(msgs[1]!.id, live.replyId) // the same bubble the app was streaming
+  assert.equal(msgs[1]!.steps?.[0]?.tool, 'Bash')
   assert.ok(!msgs.some((m) => m.role === 'error'))
   assert.equal(after.reattached[0], 'turn-1')
   // The queued message ran after it, on the new hub.
@@ -786,4 +787,46 @@ test('a worker chat runs as its persona in its folder, told how to report, with 
   assert.deepEqual(call.env, { FLEET_SLUG: 'dark-theme' })
   assert.equal(c.get(w.id).title, 'Dark theme')
   assert.equal(c.get(w.id).renamed, true)
+})
+
+test('a message sent while a reply streams waits below it, and the reply lands above it, not under it', async () => {
+  let finish!: (r: TurnResult) => void
+  const claude = new FakeEngine((r) => (!r.prompt.includes('look into it') ? Promise.resolve({ text: `ok: ${r.prompt}`, sessionId: 's' }) : new Promise((resolve) => {
+    r.onEvent({ type: 'text', text: 'Found the first part.' })
+    finish = resolve
+  })))
+  const { c } = setup({ claude })
+  const events: [string, any][] = []
+  for (const name of ['message', 'busy']) c.on(name, (e) => events.push([name, e]))
+  await c.send('assistant', 'look into it')
+  while (!claude.calls.length) await new Promise((r) => setTimeout(r, 5))
+  const follow = await c.send('assistant', 'and the second part?')
+  // It waits, and the app is told before the message itself arrives.
+  assert.deepEqual(c.get('assistant').waiting, [follow.id])
+  const told = events.findIndex(([n, e]) => n === 'busy' && e.waiting.includes(follow.id))
+  const shown = events.findIndex(([n, e]) => n === 'message' && e.message.id === follow.id)
+  assert.ok(told >= 0 && told < shown)
+  finish({ text: 'Found the first part. And the rest.', sessionId: 's' })
+  await idle(c, 'assistant')
+  assert.deepEqual(c.get('assistant').messages.map((m) => [m.role, m.text]), [
+    ['user', 'look into it'],
+    ['assistant', 'Found the first part. And the rest.'],
+    ['user', 'and the second part?'],
+    ['assistant', 'ok: and the second part?'],
+  ])
+  // The app is told where the reply goes; the next one, with nothing waiting, goes at the end.
+  const landed = events.filter(([n, e]) => n === 'message' && e.message.role === 'assistant').map(([, e]) => e.before)
+  assert.deepEqual(landed, [follow.id, undefined])
+  assert.deepEqual(c.get('assistant').waiting, [])
+})
+
+test('[quiet] and [needs you] opening later updates of a reply never show; only the leading one counts', async () => {
+  const claude = new FakeEngine(async () => ({ text: 'Initial update\n\n[quiet] Second update\n\n[needs you] Third update', sessionId: 's' }))
+  const { c, notices } = setup({ claude })
+  await c.send('assistant', 'go')
+  await idle(c, 'assistant')
+  const reply = c.get('assistant').messages.at(-1)!
+  assert.equal(reply.text, 'Initial update\n\nSecond update\n\nThird update')
+  assert.equal(reply.quiet, undefined)
+  assert.equal(notices.items.length, 1) // not quiet: it still buzzes
 })

@@ -253,6 +253,38 @@ export function readQuiet(raw: string): { text: string; quiet: boolean } {
   return { text: raw.replace(QUIET, '').trim(), quiet: QUIET.test(raw) }
 }
 
+const TAGS_AT_START = /^([ \t]*)(\[(?:quiet|needs you)\][ \t]*)+/i
+
+/**
+ * The assistant's "[quiet]" / "[needs you]" tags where a paragraph starts, as when it writes several
+ * updates in one turn and tags the later ones too. Only the leading tag means anything (readQuiet,
+ * readNeeds); the rest are dropped so they never show. Code blocks, and tags inside a sentence, stay.
+ * public/live-turn.js does the same to the text while it streams.
+ */
+export function dropTags(text: string): string {
+  const out: string[] = []
+  let fenced = false
+  let starts = true
+  for (const line of text.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
+    const bare: string = !fenced && starts ? line.replace(TAGS_AT_START, '$1') : line
+    // A tag on a line of its own: the paragraph starts on the next line.
+    if (bare !== line && !bare.trim()) continue
+    out.push(bare)
+    starts = !line.trim()
+  }
+  return out.join('\n')
+}
+
+/**
+ * Where a running turn's reply goes in the thread: above the messages still waiting their turn (sent
+ * while it ran), so what was already on screen keeps its order. At the end when nothing waits.
+ */
+export function replySlot(messages: readonly Message[], waiting: readonly string[]): number {
+  const i = messages.findIndex((m) => waiting.includes(m.id))
+  return i < 0 ? messages.length : i
+}
+
 /** The TL;DR line without its label and Markdown, or the first non-empty line, cut to fit a notification. */
 export function notificationText(text: string, max = 160): string {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)

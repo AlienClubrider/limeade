@@ -347,7 +347,10 @@ function convo(id, box, { empty, after } = {}) {
 function applyEvent(V, name, d) {
   if (!V?.chat || d.chatId !== V.id) return false
   if (name === 'message') {
-    V.chat.messages = [...V.chat.messages.filter((m) => m.id !== d.message.id), d.message]
+    // A turn's reply goes where it showed while running: above his messages still waiting (d.before).
+    const rest = V.chat.messages.filter((m) => m.id !== d.message.id)
+    const at = d.before ? rest.findIndex((m) => m.id === d.before) : -1
+    V.chat.messages = at < 0 ? [...rest, d.message] : [...rest.slice(0, at), d.message, ...rest.slice(at)]
     delete V.streaming[d.message.id]
     delete V.liveSteps[d.message.id]
   } else if (name === 'delta') {
@@ -361,6 +364,7 @@ function applyEvent(V, name, d) {
     ;(V.liveSteps[d.messageId] ||= []).push(d.step)
   } else if (name === 'busy') {
     V.chat.busy = !!d.busy
+    if (d.waiting) V.chat.waiting = d.waiting
     if (!V.chat.busy) liveTurn.settle(V)
   } else if (name === 'approval') {
     V.approvals = [...V.approvals.filter((a) => a.id !== d.id), d]
@@ -385,19 +389,24 @@ function paintConvo(V) {
   if (!msgs.length && !A.chat.busy && !A.approvals.length && V.empty) {
     box.append(h('div', { class: 'empty' }, typeof V.empty === 'function' ? V.empty() : V.empty))
   }
+  // The running turn sits above his messages still waiting their turn, so what showed first stays first.
+  const waiting = A.chat.waiting || []
+  const liveAt = liveTurn.slot(msgs, waiting)
+  const running = queuedShown(V)
+  V.live = h('div', { class: 'live-turn', 'data-queued': String(running) })
   let last = 0
-  for (const m of msgs) {
+  for (const [i, m] of msgs.entries()) {
+    if (i === liveAt) box.append(V.live)
     const t = new Date(m.at).getTime()
     if (!last || t - last >= 10 * 60000) box.append(h('div', { class: 'divider' }, timeLabel(m.at)))
     last = t
-    if (m.role === 'user') box.append(userMessage(m, V.id))
+    if (m.role === 'user') box.append(userMessage(m, V.id, running && waiting.includes(m.id)))
     else if (m.role === 'event') box.append(h('div', { class: 'event-line' }, m.text))
     else if (m.role === 'error') box.append(h('div', { class: 'error-line' }, m.text))
     else box.append(reply(m))
     box.lastChild.dataset.id = m.id
   }
-  V.live = h('div', { class: 'live-turn' })
-  box.append(V.live)
+  if (liveAt >= msgs.length) box.append(V.live)
   paintLive(V)
   for (const a of A.approvals) box.append(approvalCard(a, V))
   if (atBottom || V.toBottom || !V.once) V.end.toEnd()
@@ -406,11 +415,17 @@ function paintConvo(V) {
   V.after?.()
 }
 
+/** His messages waiting behind a turn that has started showing: they say "Queued". */
+function queuedShown(V) {
+  return !!(V.chat.busy && V.chat.waiting?.length && (Object.keys(V.streaming).length || Object.keys(V.liveSteps).length))
+}
+
 /** The running turn at the bottom of a thread: what it's doing and what it has said so far. */
 function paintLive(V) {
   const A = V
   if (!V.live) return
   if (!(A.chat.busy || Object.keys(A.streaming).length)) return V.live.replaceChildren()
+  if (V.live.dataset.queued !== String(queuedShown(V))) return paintConvo(V) // a waiting message's label changes
   const ids = Object.keys(A.streaming).length ? Object.keys(A.streaming) : Object.keys(A.liveSteps)
   const id = ids[ids.length - 1]
   const now = liveTurn.untag(A.streaming[id])
@@ -437,7 +452,12 @@ function liveSoon(V) {
 }
 
 /** The user's message: their photos as thumbnails and other files as cards, then the text. */
-function userMessage(m, chatId) {
+function userMessage(m, chatId, queued) {
+  const el = sentMessage(m, chatId)
+  return queued ? h('div', { class: 'sent queued' }, el, h('div', { class: 'queued-note' }, 'Queued after the reply above')) : el
+}
+
+function sentMessage(m, chatId) {
   const files = m.attachments || []
   if (!files.length) return h('div', { class: 'bubble' }, m.text)
   const url = (a) => `/chats/${encodeURIComponent(chatId)}/attachments/${a.id}`
