@@ -763,6 +763,9 @@ test('with built-in workers the Assistant is told the bundled fleet command, and
   await idle(c, 'assistant')
   const call = claude.calls[0]!
   assert.match(call.appendSystemPrompt!, /fleet start <agent> "<Title>" <folder> <brief-file>/)
+  // Handed-off work goes to visible workers, not subagents the Workers page can't show (issue #6).
+  assert.match(call.appendSystemPrompt!, /your own subagents \(helpers you start inside your turn\) never do\. So any job you hand off goes to a worker/)
+  assert.match(call.appendSystemPrompt!, /only after `fleet start` succeeded/)
   assert.doesNotMatch(call.appendSystemPrompt!, /~\/bin|\.claude|homelab/i)
   assert.match(call.prompt, /^\(New assistant conversation[^)]*fleet digest/)
   assert.match(call.prompt, /\[fleet event\] Fleet events \(handle each, then fleet ack\):\n1 2026-11-17T10:00:00Z dark-theme reported: done: shipped$/)

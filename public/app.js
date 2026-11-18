@@ -1444,7 +1444,7 @@ function paintWorkers() {
   // A failed refresh never leaves an old list on screen: it may show workers that have stopped.
   if (S.workersError) return box.append(h('div', { class: 'note' }, S.workersError))
   if (!S.workers) return box.append(h('div', { class: 'working' }, h('span', { class: 'spin' })))
-  if (!S.workers.length) box.append(h('div', { class: 'note' }, 'Nothing running. Ask the Assistant to start something.'))
+  if (!S.workers.length) box.append(h('div', { class: 'note' }, 'No workers running. The Assistant\'s own subagents work inside its chat and don\'t show here; ask it for a worker to follow a job here.'))
   S.workers.forEach((w) => box.append(workerRow(w)))
 }
 

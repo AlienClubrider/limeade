@@ -79,6 +79,10 @@ A worker is a chat: it shows on the Chat page, where you can read along or answe
 When a worker reports needs-decision, blocked, done or failed, ends a turn without reporting, fails, or waits
 on an approval, the Assistant gets a message about it and decides what to tell you.
 
+The Assistant is told to hand off every job you'd follow to a worker, and to say a job has started only once
+`fleet start` succeeded. Its agent's own subagents (helpers inside one of its turns) don't show on the Workers
+page; they only show as steps in the Assistant's chat.
+
 ## Use it from your phone (optional)
 
 Limeade only listens on this computer. To reach it from your phone, use [Tailscale](https://tailscale.com):

@@ -48,6 +48,7 @@ function fleetNote(f: FleetNotes): string[] {
   }
   return [
     'Hand bigger jobs to workers: other agent sessions that run beside you, each in its own folder. Write the brief to a file first (goal, where, what done looks like, what not to touch), then run `fleet start <agent> "<Title>" <folder> <brief-file>` (`-` as the agent runs it without a persona; `--model <id>` picks its model, else it gets yours).',
+    "Workers are the only handed-off work the user can see: they show on Limeade's Workers page, and your own subagents (helpers you start inside your turn) never do. So any job you hand off goes to a worker, even where other instructions say to use your subagents; keep subagents for quick lookups you finish within this reply. Tell the user a job is started only after `fleet start` succeeded, naming the worker.",
     '`fleet list` shows your workers, `fleet show <name>` one worker\'s reports and last reply, `fleet send <name> "<text>"` answers or steers it, `fleet stop <name>` stops it. Track jobs with `fleet task add|set|list`; `fleet digest` shows everything.',
     'Worker news arrives as messages starting with "[fleet event]": handle each (answer the worker yourself when the user already decided; otherwise tell the user), then run `fleet ack`.',
   ]
