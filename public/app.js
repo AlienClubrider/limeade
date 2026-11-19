@@ -615,9 +615,11 @@ function paintLive(V) {
   // What it wrote before its latest step is a note on the way, not the reply: muted, with the activity.
   const { notes, now } = liveTurn.split(A.streaming[id], steps)
   const running = A.chat.busy && !now ? steps[steps.length - 1] : null
-  // Every update so far, the latest one included, folded behind one line that shows the latest; the
-  // activity line stays apart below it.
-  put(V.live, updatesFold(id, notes, true),
+  // The newest update shows whole, as a message like its replies; the ones before it fold behind
+  // "N earlier updates". The activity line stays apart below it.
+  const { earlier, latest } = liveTurn.liveUpdates(notes)
+  put(V.live, updatesFold(id, earlier),
+    latest ? h('div', { class: 'reply' }, h('div', { class: 'md reply-card', html: window.md.render(latest.text) })) : null,
     progressLine(steps, notes, running),
     now ? h('div', { class: 'reply' }, h('div', { class: 'md reply-card', html: window.md.render(now) })) : null)
   // A step that runs on: repaint now and then so its time keeps counting.
@@ -686,15 +688,15 @@ const openUpdates = new Set()
  * What a turn wrote on the way (between its steps), each update apart and in order, folded behind one
  * line so the reply below stays easy to find.
  */
-function updatesFold(id, notes, live = false) {
+function updatesFold(id, notes) {
   if (!notes.length) return null
   const open = openUpdates.has(id)
-  const row = liveTurn.updatesRow(notes, live, open)
-  const box = h('div', { class: row.message ? 'updates update-card' : 'updates' },
+  const count = `${notes.length} earlier ${notes.length === 1 ? 'update' : 'updates'}`
+  const box = h('div', { class: 'updates' },
     h('button', {
-      class: row.message ? 'gist-line' : 'status-line', 'aria-expanded': String(open), 'aria-label': row.label,
-      onclick: () => { open ? openUpdates.delete(id) : openUpdates.add(id); box.replaceWith(updatesFold(id, notes, live)) },
-    }, row.message ? [row.gist ? h('span', { class: 'gist' }, row.gist) : null, row.count ? h('span', { class: 'took' }, row.count) : null] : row.count, svg(open ? ICON.chevD : ICON.chevR)),
+      class: 'status-line', 'aria-expanded': String(open),
+      onclick: () => { open ? openUpdates.delete(id) : openUpdates.add(id); box.replaceWith(updatesFold(id, notes)) },
+    }, count, svg(open ? ICON.chevD : ICON.chevR)),
     open ? notes.map((n) => h('div', { class: 'md turn-note update', html: window.md.render(n.text) })) : null)
   return box
 }

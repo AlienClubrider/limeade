@@ -118,39 +118,32 @@ test('live turn: the running reply shows above his messages still waiting their 
   assert.equal(liveTurn.slot(msgs, undefined), 3)
 })
 
-test('live turn: a long update folds to one plain line while the turn runs (issue #12)', () => {
-  const note = 'The worker also found two **Sonar** issues: duplicate exception logging\nand an unused `catch` variable.\n\n- see [the report](https://example.com/r)'
-  const line = liveTurn.oneLine(note)
-  assert.equal(line, 'The worker also found two Sonar issues: duplicate exception logging and an unused catch variable. see the report')
-  assert.ok(!line.includes('\n'))
-  assert.equal(liveTurn.oneLine('```sh\nnpm test\n```'), 'npm test')
-  assert.equal(liveTurn.oneLine(''), '')
-})
-
-test('live turn: updates stay apart from the reply (#10), fold to one line (#12), and read as the Assistant talking (#14)', async () => {
+test('live turn: updates stay apart from the reply (#10), history folds (#12), they read as the Assistant talking (#14), and the newest shows whole (#16)', async () => {
   const { readFileSync } = await import('node:fs')
-  const text = 'Checked the two failing tests.\n\nI’ll use the **feature-verification** skill to separate what the local tests\nalready proved from what you can validate on dev.'
+  const first = 'Checked the two failing tests.'
+  const latest = 'I’ll use the **feature-verification** skill to separate what the local tests\nalready proved from what you can validate on dev.'
+  const text = `${first}\n\n${latest}`
   const steps = [{ tool: 'Bash', at: text.indexOf('\n\n') }, { tool: 'Bash', at: text.length }]
   // #10: each update apart and in order, none of it in the reply.
   const { notes, now } = liveTurn.split(text, steps)
   assert.deepEqual(notes.map((n: { before: number }) => n.before), [0, 1])
   assert.equal(now, '')
-  // #12: folded, the running turn's row says only its latest update, on one plain line.
-  const row = liveTurn.updatesRow(notes, true, false)
-  assert.equal(row.gist, 'I’ll use the feature-verification skill to separate what the local tests already proved from what you can validate on dev.')
-  assert.equal(row.count, '2 updates')
-  // Unfolded, the updates show whole inside it, so the row doesn't repeat the latest.
-  assert.deepEqual([liveTurn.updatesRow(notes, true, true).gist, liveTurn.updatesRow(notes, true, true).count], [null, '2 updates'])
-  // #14: while it runs that row is a message, not a status line; a finished reply's updates are history.
-  assert.equal(row.message, true)
-  assert.deepEqual(liveTurn.updatesRow(notes, false, false), { message: false, gist: null, count: '2 earlier updates', label: '2 earlier updates' })
+  // #16: the newest update is whole, line breaks and markdown kept, not cut to one line.
+  const live = liveTurn.liveUpdates(notes)
+  assert.equal(live.latest.text, latest)
+  // #12: the ones before it fold away, and never repeat the newest; one update alone leaves nothing folded.
+  assert.deepEqual(live.earlier.map((n: { text: string }) => n.text), [first])
+  assert.deepEqual(liveTurn.liveUpdates(notes.slice(0, 1)), { earlier: [], latest: notes[0] })
+  assert.deepEqual(liveTurn.liveUpdates([]), { earlier: [], latest: null })
   const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8')
-  assert.match(app, /row\.message \? 'updates update-card' : 'updates'/)
-  assert.match(app, /row\.message \? 'gist-line' : 'status-line'/) // the "Running a command…" status-line stays outside the card
+  const paint = app.slice(app.indexOf('function paintLive('), app.indexOf('function liveSoon('))
+  // #14 + #16: the newest is a message in the same card as a finished reply, rendered whole, with no
+  // fold or chevron of its own; the "Running a command…" line stays apart, below it.
+  assert.match(paint, /updatesFold\(id, earlier\),\s*latest \? h\('div', \{ class: 'reply' \}, h\('div', \{ class: 'md reply-card', html: window\.md\.render\(latest\.text\) \}\)\) : null,\s*progressLine\(/)
+  assert.doesNotMatch(app, /gist-line|update-card|oneLine/)
   const css = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8')
-  const rule = (sel: string) => new RegExp(`${sel.replace(/[.-]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? ''
-  assert.match(rule('.update-card'), /background:\s*var\(--card\)/) // the same card as its replies
-  assert.match(rule('.update-card'), /border:[^;]*var\(--cardLine\)/)
-  assert.match(rule('.gist-line .gist'), /white-space:\s*nowrap/) // one line, cut to fit
-  assert.match(rule('.gist-line'), /color:\s*var\(--text\)/) // its words, not muted metadata
+  assert.doesNotMatch(css, /\.gist|\.update-card/) // the one-line card is gone
+  const rule = (sel: string) => new RegExp(`(?:^|\\n)${sel.replace(/[.-]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? ''
+  assert.match(rule('.reply-card'), /background:\s*var\(--card\)/) // contained in a bubble, not loose text
+  assert.doesNotMatch(rule('.reply-card'), /nowrap|max-height|text-overflow/) // never truncated
 })

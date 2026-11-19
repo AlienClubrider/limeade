@@ -97,33 +97,16 @@
   }
 
   /**
-   * An update said as one plain line, for the folded row while a turn runs: its markdown marks dropped
-   * and its lines run together (the row cuts it to fit; unfolding shows it whole).
+   * A running turn's updates as the page shows them: the newest whole, as a message like its replies
+   * (never cut to one line behind a fold), and the ones before it folded behind "N earlier updates",
+   * the same row a finished reply's updates sit behind.
    */
-  function oneLine(text) {
-    return (text || '')
-      .replace(/```[^\n]*\n?/g, ' ')
-      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/^[ \t]*(#{1,6}|>|[-*+]|\d+[.)])[ \t]+/gm, '')
-      .replace(/(\*\*|__|`|~~)/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
+  function liveUpdates(notes) {
+    const all = notes || []
+    return { earlier: all.slice(0, -1), latest: all.length ? all[all.length - 1] : null }
   }
 
-  /**
-   * The row a turn's updates fold behind. While the turn runs it is the Assistant talking, so it shows as
-   * a message (a card like its replies), saying the latest update on one line (cut to fit), or just the
-   * count once unfolded, since the updates then show whole inside it. A finished reply's updates are
-   * history above it: a plain "2 earlier updates" line.
-   */
-  function updatesRow(notes, live, open) {
-    const n = (notes || []).length
-    const count = `${n} ${live ? '' : 'earlier '}${n === 1 ? 'update' : 'updates'}`
-    const gist = live && n && !open ? oneLine(notes[n - 1].text) : null
-    return { message: !!live, gist, count: gist && n === 1 ? null : count, label: gist ? `${count}, latest: ${gist}` : count }
-  }
-
-  const api = { settle, addPiece, split, slot, elapsed, oneLine, updatesRow }
+  const api = { settle, addPiece, split, slot, elapsed, liveUpdates }
   if (typeof window !== 'undefined') window.liveTurn = api
   if (typeof module !== 'undefined') module.exports = api
 })()

@@ -75,11 +75,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .turn-note > :first-child { margin-top: 0 } .turn-note > :last-child { margin-bottom: 0 }
 .updates { margin-bottom: 4px } .updates .update { padding: 0 0 10px 12px; border-left: 2px solid var(--cardLine) } /* each update apart, in order */
 .status-line svg { width: 16px; height: 16px; color: var(--faint) }
-/* A running turn's updates: the Assistant talking, so a card like its replies, its latest update on one line; unfolded, each in full inside it */
-.update-card { width: fit-content; max-width: 100%; margin: 2px 0 6px; background: var(--card); border: 1px solid var(--cardLine); border-radius: 16px; overflow: hidden }
-.gist-line { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 8px 12px 8px 14px; color: var(--text); font-size: 15px; text-align: left } .gist-line .gist { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis } .gist-line > :not(.gist) { flex: none }
-.gist-line .took { color: var(--faint); font-size: 13.5px; font-variant-numeric: tabular-nums } .gist-line svg { width: 16px; height: 16px; color: var(--faint) }
-.update-card .update { color: var(--text); margin: 0 14px; padding: 8px 0 10px; border-left: 0; border-top: 1px solid var(--cardLine) }
 .reply-actions { display: flex; gap: 14px; margin-top: 6px; color: var(--faint) }
 .reply-actions button { padding: 4px } .reply-actions svg { width: 19px; height: 19px }
 .reply-actions button.on { color: var(--accent2) }
