@@ -38,10 +38,11 @@ test('monitors page: a trigger and a run in plain words, with the colours Worker
   assert.deepEqual(mv.listFrom({ monitors: [{ id: 'a' }] }), [{ id: 'a' }])
 })
 
-test('monitors page: in the drawer right above Agents, served, live, no chat box', () => {
+test('monitors page: in the drawer right below Agents (above Local Models), served, live, no chat box', () => {
   const html = read('index.html')
   const tabs = [...html.matchAll(/data-tab="([a-z]+)"/g)].map((m) => m[1])
-  assert.equal(tabs[tabs.indexOf('agent') - 1], 'monitors')
+  assert.equal(tabs[tabs.indexOf('agent') + 1], 'monitors')
+  assert.ok(html.indexOf('data-tab="monitors"') < html.indexOf('id="drawer-models"'))
   assert.match(html, /<section id="view-monitors"/)
   assert.ok(isWebFile('/monitors.js'))
   assert.ok(isWebFile('/monitors.0123456789.js'))
