@@ -431,11 +431,10 @@ function paintLive(V) {
   const steps = A.liveSteps[id] || []
   // What it wrote before its latest step is a note on the way, not the reply: muted, with the activity.
   const { notes, now } = liveTurn.split(A.streaming[id], steps)
-  const note = notes.length && notes[notes.length - 1].before === steps.length - 1 ? notes[notes.length - 1].text : null
   const running = A.chat.busy && !now ? steps[steps.length - 1] : null
-  // Earlier updates keep their own place, folded, instead of the latest one writing over them.
-  put(V.live, updatesFold(id, note ? notes.slice(0, -1) : notes),
-    note ? h('div', { class: 'md turn-note', html: window.md.render(note) }) : null,
+  // Every update so far, the latest one included, folded behind one line that shows the latest; the
+  // activity line stays apart below it.
+  put(V.live, updatesFold(id, notes, true),
     progressLine(steps, notes, running),
     now ? h('div', { class: 'reply' }, h('div', { class: 'md reply-card', html: window.md.render(now) })) : null)
   // A step that runs on: repaint now and then so its time keeps counting.
@@ -504,14 +503,19 @@ const openUpdates = new Set()
  * What a turn wrote on the way (between its steps), each update apart and in order, folded behind one
  * line so the reply below stays easy to find.
  */
-function updatesFold(id, notes) {
+function updatesFold(id, notes, live = false) {
   if (!notes.length) return null
   const open = openUpdates.has(id)
+  const count = `${notes.length} ${live ? '' : 'earlier '}${notes.length === 1 ? 'update' : 'updates'}`
+  // While the turn runs, the row says the latest update on one line (cut to fit) instead of a count.
+  const label = live
+    ? [h('span', { class: 'gist' }, liveTurn.oneLine(notes[notes.length - 1].text)), notes.length > 1 ? h('span', { class: 'took' }, count) : null]
+    : count
   const box = h('div', { class: 'updates' },
     h('button', {
-      class: 'status-line', 'aria-expanded': String(open),
-      onclick: () => { open ? openUpdates.delete(id) : openUpdates.add(id); box.replaceWith(updatesFold(id, notes)) },
-    }, `${notes.length} earlier ${notes.length === 1 ? 'update' : 'updates'}`, svg(open ? ICON.chevD : ICON.chevR)),
+      class: live ? 'status-line gist-line' : 'status-line', 'aria-expanded': String(open), 'aria-label': live ? `${count}, latest: ${liveTurn.oneLine(notes[notes.length - 1].text)}` : null,
+      onclick: () => { open ? openUpdates.delete(id) : openUpdates.add(id); box.replaceWith(updatesFold(id, notes, live)) },
+    }, label, svg(open ? ICON.chevD : ICON.chevR)),
     open ? notes.map((n) => h('div', { class: 'md turn-note update', html: window.md.render(n.text) })) : null)
   return box
 }

@@ -117,3 +117,12 @@ test('live turn: the running reply shows above his messages still waiting their 
   assert.equal(liveTurn.slot(msgs, []), 3)
   assert.equal(liveTurn.slot(msgs, undefined), 3)
 })
+
+test('live turn: a long update folds to one plain line while the turn runs (issue #12)', () => {
+  const note = 'The worker also found two **Sonar** issues: duplicate exception logging\nand an unused `catch` variable.\n\n- see [the report](https://example.com/r)'
+  const line = liveTurn.oneLine(note)
+  assert.equal(line, 'The worker also found two Sonar issues: duplicate exception logging and an unused catch variable. see the report')
+  assert.ok(!line.includes('\n'))
+  assert.equal(liveTurn.oneLine('```sh\nnpm test\n```'), 'npm test')
+  assert.equal(liveTurn.oneLine(''), '')
+})

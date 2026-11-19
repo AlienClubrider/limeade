@@ -96,7 +96,21 @@
     return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`
   }
 
-  const api = { settle, addPiece, split, slot, elapsed }
+  /**
+   * An update said as one plain line, for the folded row while a turn runs: its markdown marks dropped
+   * and its lines run together (the row cuts it to fit; unfolding shows it whole).
+   */
+  function oneLine(text) {
+    return (text || '')
+      .replace(/```[^\n]*\n?/g, ' ')
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/^[ \t]*(#{1,6}|>|[-*+]|\d+[.)])[ \t]+/gm, '')
+      .replace(/(\*\*|__|`|~~)/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  const api = { settle, addPiece, split, slot, elapsed, oneLine }
   if (typeof window !== 'undefined') window.liveTurn = api
   if (typeof module !== 'undefined') module.exports = api
 })()

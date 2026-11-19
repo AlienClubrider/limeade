@@ -75,6 +75,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .turn-note > :first-child { margin-top: 0 } .turn-note > :last-child { margin-bottom: 0 }
 .updates { margin-bottom: 4px } .updates .update { padding: 0 0 10px 12px; border-left: 2px solid var(--cardLine) } /* each update apart, in order */
 .status-line svg { width: 16px; height: 16px; color: var(--faint) }
+.gist-line { display: flex; max-width: 100%; margin-bottom: 2px; text-align: left } .gist-line .gist { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis } .gist-line > :not(.gist) { flex: none } /* a running turn's latest update, one line */
 .reply-actions { display: flex; gap: 14px; margin-top: 6px; color: var(--faint) }
 .reply-actions button { padding: 4px } .reply-actions svg { width: 19px; height: 19px }
 .reply-actions button.on { color: var(--accent2) }
