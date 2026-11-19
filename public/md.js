@@ -37,8 +37,12 @@
    * A linked file's short name ("Test.java:72"), with its whole path on hover and copied on a tap (app.js),
    * so a reply full of links doesn't repeat long paths that wrap across lines.
    */
-  const pathChip = (path) =>
-    `<button type="button" class="pathchip" data-path="${esc(path)}" title="${esc(path)}" aria-label="Copy path ${esc(path)}"><span>${esc(path.replace(/\/+$/, '').split('/').at(-1) || path).replace(/(:\d+(:\d+)?)$/, '<wbr>$1')}</span>${COPY_ICON}</button>`
+  function pathChip(path) {
+    // One line always: a name too wide for the reply loses its middle ("AbstractPurg…est.java:120"), never its line.
+    const [, name, line = ''] = /^(.*?)(:\d+(?::\d+)?)?$/.exec(path.replace(/\/+$/, '').split('/').at(-1) || path)
+    const keep = name.length > 12 ? 8 : 0
+    return `<button type="button" class="pathchip" data-path="${esc(path)}" title="${esc(path)}" aria-label="Copy path ${esc(path)}"><span class="cut">${esc(name.slice(0, name.length - keep))}</span><span>${esc(name.slice(name.length - keep) + line)}</span>${COPY_ICON}</button>`
+  }
   const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>'
 
   /** Where the hub serves a file under home; each part encoded, so the file's own relative links still work. */

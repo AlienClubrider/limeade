@@ -19,7 +19,7 @@ test('markdown renders the usual things and escapes HTML', () => {
 })
 
 test('a link to a file the agent made opens through the hub and shows its name, copying its path (issues #9, #15)', () => {
-  const chip = (path: string, name: string) => `<button type="button" class="pathchip" data-path="${path}" title="${path}" aria-label="Copy path ${path}"><span>${name}</span><svg`
+  const chip = (path: string, cut: string, kept = '') => `<button type="button" class="pathchip" data-path="${path}" title="${path}" aria-label="Copy path ${path}"><span class="cut">${cut}</span><span>${kept}</span><svg`
   // What the Assistant said: the link text must not end up as bare words with nowhere to go.
   assert.equal(md.render('Here’s the diagram: [Open Purger diagram](/Users/me/dev/purger/diagram.html)').split('<svg')[0] + '<svg',
     '<p>Here’s the diagram: <a href="/files/Users/me/dev/purger/diagram.html" target="_blank" rel="noopener">Open Purger diagram</a> ' + chip('/Users/me/dev/purger/diagram.html', 'diagram.html'))
@@ -36,9 +36,9 @@ test('a link to a file the agent made opens through the hub and shows its name, 
   // A source reference keeps its line in the link (the hub opens the file there) and in the short name.
   const ref = md.render('[Failure logging](/Users/me/p/AbstractPurgerProcessorTest.java:120)')
   assert.ok(ref.includes('href="/files/Users/me/p/AbstractPurgerProcessorTest.java%3A120"'))
-  assert.ok(ref.includes(chip('/Users/me/p/AbstractPurgerProcessorTest.java:120', 'AbstractPurgerProcessorTest.java<wbr>:120')))
+  assert.ok(ref.includes(chip('/Users/me/p/AbstractPurgerProcessorTest.java:120', 'AbstractPurgerProcessorT', 'est.java:120')))
   assert.ok(md.render('[x](/Users/me/p/My%20Test.java:72:5)').includes('href="/files/Users/me/p/My%20Test.java%3A72%3A5"'))
-  assert.ok(md.render('[x](/Users/me/p/My%20Test.java:72:5)').includes('<span>My Test.java<wbr>:72:5</span>'))
+  assert.ok(md.render('[x](/Users/me/p/My%20Test.java:72:5)').includes('<span class="cut">My Test.java</span><span>:72:5</span>'))
   // Somewhere this app can't open still shows where it pointed.
   assert.equal(md.render('[Open diagram](diagram.html)'), '<p>Open diagram <code>diagram.html</code></p>')
   assert.equal(md.plain('[Open diagram](/a/d.html)'), 'Open diagram')
