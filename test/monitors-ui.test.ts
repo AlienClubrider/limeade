@@ -38,6 +38,26 @@ test('monitors page: a trigger and a run in plain words, with the colours Worker
   assert.deepEqual(mv.listFrom({ monitors: [{ id: 'a' }] }), [{ id: 'a' }])
 })
 
+test('monitor page: Details rows say who it runs as, where and since when', () => {
+  assert.deepEqual(mv.facts({ agent: 'apologist', cwd: '/h/p', createdAt: 'T' }, (p: string) => `~${p}`, (t: string) => `at ${t}`),
+    [['Runs as', 'apologist'], ['Folder', '~/h/p'], ['Created', 'at T']])
+  assert.deepEqual(mv.facts({ agent: null }), [['Runs as', 'No agent']])
+})
+
+test('monitor page: what it does, then Run now / Pause, then runs; the brief and Delete wait in a closed Details', () => {
+  const app = read('app.js')
+  const page = app.slice(app.indexOf('function openMonitor('), app.indexOf('function runRow('))
+  const order = ["m.description ? h('div', { class: 'desc' }", "'monitor-acts'", "'Runs')", 'details,\n']
+  const at = order.map((s) => page.indexOf(s))
+  assert.ok(at.every((i) => i > 0), `missing: ${order.filter((_, i) => at[i] < 0)}`)
+  assert.deepEqual([...at].sort((a, b) => a - b), at)
+  const details = page.slice(page.indexOf("h('details'"), page.indexOf('details.open = detailsOpen'))
+  for (const s of ['m.instructions', 'MV.facts(', 'Delete monitor']) assert.ok(details.includes(s), s)
+  assert.doesNotMatch(page, /'Trigger'/) // the schedule is in the header only
+  assert.doesNotMatch(page, /open: true/) // closed by default
+  assert.match(app, /m\.description \? h\('div', \{ class: 'desc one' \}/) // the list shows it too
+})
+
 test('monitors page: in the drawer right below Agents (above Local Models), served, live, no chat box', () => {
   const html = read('index.html')
   const tabs = [...html.matchAll(/data-tab="([a-z]+)"/g)].map((m) => m[1])

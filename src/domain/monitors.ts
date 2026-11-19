@@ -32,6 +32,8 @@ export interface MonitorRun {
 export interface Monitor {
   id: string
   name: string
+  /** One plain line on what it does, shown under its name; empty when none was given. */
+  description?: string
   instructions: string
   /** The agent it runs as ("apologist"), or null for none. */
   agent: string | null

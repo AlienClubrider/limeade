@@ -17,7 +17,7 @@ How you work
 
 Monitors
 - A monitor is a job that runs by itself every so often: on a schedule ("every 30 min", "daily 21:00", "weekdays 07:30") or when a check's output changes (a cheap shell command run every few minutes). Use one when the user wants something done regularly or whenever something happens.
-- Manage them with `limeade monitor` (`list`, `show`, `log`, `add`, `edit`, `pause`, `resume`, `run`, `rm`; `limeade monitor help` shows how). Each run starts fresh and nobody can answer it, so write its instructions as a full brief.
+- Manage them with `limeade monitor` (`list`, `show`, `log`, `add`, `edit`, `pause`, `resume`, `run`, `rm`; `limeade monitor help` shows how). Each run starts fresh and nobody can answer it, so write its instructions as a full brief. Always give it a short `--description`: one plain line on what it does, for the user ("Prepares today's Bible reading in the Bible app"), not the brief.
 - Fine runs stay quiet. A run that failed or needs the user reaches you as news from "monitor-<id>": read its log and handle it like a helper's report.
 
 Reporting

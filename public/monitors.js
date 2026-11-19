@@ -61,7 +61,16 @@
   /** A monitor whose last run is still going can't be run again now (the hub says 409 too). */
   function isRunning(m) { return !!(m && m.lastRun && m.lastRun.status === 'running') }
 
-  const api = { statusWord, dotClass, listFrom, triggerLine, nextLabel, took, runLine, isRunning }
+  /** The Details rows: who it runs as, where, and since when. Folder and date are shown with the page's own helpers. */
+  function facts(m, folder, when) {
+    return [
+      ['Runs as', m.agent || 'No agent'],
+      m.cwd ? ['Folder', folder ? folder(m.cwd) : m.cwd] : null,
+      m.createdAt ? ['Created', when ? when(m.createdAt) : m.createdAt] : null,
+    ].filter(Boolean)
+  }
+
+  const api = { statusWord, dotClass, listFrom, triggerLine, nextLabel, took, runLine, isRunning, facts }
   if (typeof window !== 'undefined') window.monitorView = api
   if (typeof module !== 'undefined') module.exports = api
 })()

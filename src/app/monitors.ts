@@ -41,6 +41,8 @@ export type RunView = Omit<MonitorRun, 'handle'>
 export interface MonitorSummary {
   id: string
   name: string
+  /** One plain line on what it does; '' when none was given. */
+  description: string
   agent: string | null
   trigger: Trigger
   enabled: boolean
@@ -252,7 +254,7 @@ export class Monitors extends EventEmitter {
 
   private summary(m: Monitor): MonitorSummary {
     const last = lastRun(m)
-    return { id: m.id, name: m.name, agent: m.agent, trigger: m.trigger, enabled: m.enabled, nextRunAt: m.enabled ? m.nextRunAt : null, lastRun: last && view(last) }
+    return { id: m.id, name: m.name, description: m.description ?? '', agent: m.agent, trigger: m.trigger, enabled: m.enabled, nextRunAt: m.enabled ? m.nextRunAt : null, lastRun: last && view(last) }
   }
 
   list(): MonitorSummary[] {
@@ -281,6 +283,7 @@ export class Monitors extends EventEmitter {
     const m: Monitor = {
       id: monitorId(name, new Set(this.all.keys())),
       name,
+      description: this.description(b.description),
       instructions: this.instructions(b.instructions),
       agent: await this.agent(b.agent),
       cwd: await this.folder(b.cwd ?? this.d.defaultFolder),
@@ -296,11 +299,12 @@ export class Monitors extends EventEmitter {
     return this.get(m.id)
   }
 
-  /** Changes any of name, instructions, agent, cwd, trigger, enabled. */
+  /** Changes any of name, description, instructions, agent, cwd, trigger, enabled. */
   async update(id: string, b: Record<string, unknown>): Promise<MonitorDetail> {
     const m = this.find(id)
     const next: Monitor = { ...m }
     if (b.name !== undefined) next.name = this.name(b.name)
+    if (b.description !== undefined) next.description = this.description(b.description)
     if (b.instructions !== undefined) next.instructions = this.instructions(b.instructions)
     if (b.agent !== undefined) next.agent = await this.agent(b.agent)
     if (b.cwd !== undefined) next.cwd = await this.folder(b.cwd)
@@ -339,6 +343,15 @@ export class Monitors extends EventEmitter {
     const s = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : ''
     if (!s) throw new HubError(400, 'Give the monitor a name')
     if (s.length > 80) throw new HubError(400, 'Keep the name under 80 characters')
+    return s
+  }
+
+  /** Optional: one line, spaces tidied; empty or missing means none. */
+  private description(v: unknown): string {
+    if (v === undefined || v === null) return ''
+    if (typeof v !== 'string') throw new HubError(400, 'The description must be text')
+    const s = v.replace(/\s+/g, ' ').trim()
+    if (s.length > 200) throw new HubError(400, 'Keep the description to one short line (under 200 characters)')
     return s
   }
 

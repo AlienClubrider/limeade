@@ -10,9 +10,9 @@ const USAGE = `limeade monitor: recurring agent jobs
   limeade monitor show <id>
   limeade monitor log <id> [run-id]          (the newest run when no run is given)
   limeade monitor add "<name>" --when "<schedule>" (--file <instructions-file> | --text "<instructions>")
-                      [--agent <name>] [--folder <dir>] [--paused]
+                      [--description "<one line on what it does>"] [--agent <name>] [--folder <dir>] [--paused]
   limeade monitor add "<name>" --check "<command>" [--every "10 min"] (--file … | --text …) [--agent …] [--folder …]
-  limeade monitor edit <id> [--name …] [--when … | --check … --every …] [--file … | --text …] [--agent <name|->] [--folder …]
+  limeade monitor edit <id> [--name …] [--when … | --check … --every …] [--file … | --text …] [--description …] [--agent <name|->] [--folder …]
   limeade monitor pause <id> | resume <id> | run <id> | rm <id>
 Schedules: "every 30 min", "every 2 hours", "daily 21:00", "weekdays 07:30", "mon,wed,fri 9am".
 A check runs its command every N minutes; the job runs when the command's output changes.`
@@ -68,6 +68,7 @@ export function parseArgs(args: string[]): { words: string[]; flags: Record<stri
 export function bodyFrom(flags: Record<string, string>, read: (path: string) => string = (p) => readFileSync(p === '-' ? 0 : p, 'utf8')): Record<string, unknown> {
   const b: Record<string, unknown> = {}
   if (flags.name !== undefined) b.name = flags.name
+  if (flags.description !== undefined) b.description = flags.description
   if (flags.when !== undefined) b.trigger = { kind: 'schedule', text: flags.when }
   if (flags.check !== undefined) b.trigger = { kind: 'check', command: flags.check, ...(flags.every ? { every: flags.every } : {}) }
   if (flags.file !== undefined) b.instructions = read(flags.file)
@@ -110,13 +111,13 @@ async function main(argv: string[]) {
       if (!all.length) return say('No monitors yet.')
       for (const m of all) {
         const last = m.lastRun ? `last: ${m.lastRun.status} ${ago(m.lastRun.startedAt)} — ${m.lastRun.summary}` : 'never run'
-        say(`${m.id}  ${m.enabled ? '' : '[paused] '}${m.name} · ${m.trigger.text}${m.agent ? ` · as ${m.agent}` : ''}\n    next: ${m.nextRunAt ? ago(m.nextRunAt) : '-'} · ${last}`)
+        say(`${m.id}  ${m.enabled ? '' : '[paused] '}${m.name} · ${m.trigger.text}${m.agent ? ` · as ${m.agent}` : ''}${m.description ? `\n    ${m.description}` : ''}\n    next: ${m.nextRunAt ? ago(m.nextRunAt) : '-'} · ${last}`)
       }
       return
     }
     case 'show': {
       const m = await hub('GET', `/monitors/${encodeURIComponent(await idOf(words[0]))}`)
-      say(`${m.name} (${m.id})${m.enabled ? '' : ' [paused]'}\nWhen: ${m.trigger.text}\nAgent: ${m.agent ?? '-'}\nFolder: ${m.cwd}\nNext: ${m.nextRunAt ?? '-'}\n\n${m.instructions}\n\nRuns:`)
+      say(`${m.name} (${m.id})${m.enabled ? '' : ' [paused]'}${m.description ? `\n${m.description}` : ''}\nWhen: ${m.trigger.text}\nAgent: ${m.agent ?? '-'}\nFolder: ${m.cwd}\nNext: ${m.nextRunAt ?? '-'}\n\n${m.instructions}\n\nRuns:`)
       for (const r of m.runs.slice(0, 10)) say(`  ${runLine(r)}`)
       if (!m.runs.length) say('  (none yet)')
       return

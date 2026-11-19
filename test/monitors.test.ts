@@ -150,6 +150,7 @@ test('create checks what it is given and schedules the first run', async () => {
   assert.equal(m.nextRunAt, new Date(2026, 10, 20, 9, 30).toISOString())
   assert.equal(m.lastRun, null)
   assert.deepEqual(m.runs, [])
+  assert.equal(m.description, '') // none given: nothing, never the instructions
   await assert.rejects(monitors.create({ name: '', instructions: 'x', trigger: 'hourly' }), /name/)
   await assert.rejects(monitors.create({ name: 'a', instructions: ' ', trigger: 'hourly' }), /instructions are empty/)
   await assert.rejects(monitors.create({ name: 'a', instructions: 'x', trigger: 'soonish' }), /Can't read/)
@@ -247,6 +248,21 @@ test('paused monitors do not run; resume schedules from now', async () => {
   await monitors.update('m', { enabled: false })
   await monitors.runNow('m')
   assert.equal(turns.started.length, 1)
+})
+
+test('a description is one tidy line, shown in the list and detail, and can be changed or cleared', async () => {
+  const { monitors, store } = setup()
+  const m = await monitors.create({ name: 'Prep', description: '  Prepares today’s\n reading  ', instructions: 'A long brief', trigger: 'daily 05:00' })
+  assert.equal(m.description, 'Prepares today’s reading')
+  assert.equal(monitors.list()[0]!.description, 'Prepares today’s reading')
+  assert.equal((await store.list())[0]!.description, 'Prepares today’s reading')
+  const e = await monitors.update('prep', { description: 'Sets up the study' })
+  assert.equal(e.description, 'Sets up the study')
+  assert.equal(e.instructions, 'A long brief')
+  assert.equal(e.trigger.text, 'Daily at 05:00') // the schedule is untouched
+  assert.equal((await monitors.update('prep', { description: '' })).description, '')
+  await assert.rejects(monitors.update('prep', { description: 'x'.repeat(201) }), /one short line/)
+  await assert.rejects(monitors.update('prep', { description: 5 }), /must be text/)
 })
 
 test('edits change the trigger and what runs', async () => {
@@ -397,6 +413,7 @@ test('the CLI turns flags into what the API takes', () => {
   assert.deepEqual(bodyFrom(parseArgs(['--check', 'ls', '--every', '5 min', '--agent', '-', '--file', 'f']).flags, () => 'from file'), {
     trigger: { kind: 'check', command: 'ls', every: '5 min' }, agent: null, instructions: 'from file',
   })
+  assert.deepEqual(bodyFrom(parseArgs(['--description', 'Prepares the reading']).flags), { description: 'Prepares the reading' })
 })
 
 // ---------- the API ----------
@@ -436,7 +453,7 @@ test('the API: list, create, detail, run, run log, pause, delete', async () => {
     assert.equal((await made.json()).id, 'bible-study')
     assert.equal((await call('/monitors', { method: 'POST', body: JSON.stringify({ name: 'x', instructions: 'y', trigger: 'nope' }) })).status, 400)
     const list = await (await call('/monitors')).json()
-    assert.deepEqual(Object.keys(list[0]).sort(), ['agent', 'enabled', 'id', 'lastRun', 'name', 'nextRunAt', 'trigger'])
+    assert.deepEqual(Object.keys(list[0]).sort(), ['agent', 'description', 'enabled', 'id', 'lastRun', 'name', 'nextRunAt', 'trigger'])
     assert.deepEqual(Object.keys(list[0].trigger).sort(), ['kind', 'spec', 'text'])
     const ran = await call('/monitors/bible-study/run', { method: 'POST' })
     assert.equal(ran.status, 202)

@@ -1775,6 +1775,7 @@ function monitorRow(m) {
     h('span', { class: `state-dot ${MV.dotClass(run?.status)}${running ? ' pulse' : ''}` }),
     h('div', { class: 'body' },
       h('div', { class: 'line1' }, h('span', { class: 't' }, m.name), run?.startedAt ? h('span', { class: 'ago' }, ago(run.startedAt)) : null),
+      m.description ? h('div', { class: 'desc one' }, m.description) : null,
       h('div', { class: 's one' }, `${MV.triggerLine(m.trigger)} · ${MV.nextLabel(m)}`),
       running
         ? h('div', { class: 'now' }, m.agent ? h('span', { class: 'agent' }, `${m.agent} · `) : null, h('span', { class: 'shimmer' }, `${MV.runLine(run)}…`))
@@ -1798,6 +1799,8 @@ function openMonitor(summary, fromList = false) {
     const path = `/monitors/${encodeURIComponent(summary.id)}`
     let m = null
     let acting = false
+    // The Details disclosure stays as he left it while the page repaints (runs come and go).
+    let detailsOpen = false
 
     async function refresh() {
       try { m = await api('GET', path) } catch (e) {
@@ -1830,12 +1833,17 @@ function openMonitor(summary, fromList = false) {
       title.textContent = m.name
       put(sub, monitorSub(m))
       const running = MV.isRunning(m)
+      const details = h('details', { class: 'monitor-details', ontoggle: () => { detailsOpen = details.open } },
+        h('summary', {}, 'Details', svg(ICON.chevR)),
+        h('div', { class: 'section flush' }, 'Instructions'),
+        h('div', { class: 'codebox instructions' }, m.instructions),
+        m.trigger?.kind === 'check' && m.trigger.spec?.command ? [h('div', { class: 'section flush' }, 'Check'), h('div', { class: 'codebox mono' }, m.trigger.spec.command)] : null,
+        h('div', { class: 'card facts' },
+          MV.facts(m, shortFolder, timeLabel).map(([k, v]) => h('div', { class: 'cardrow' }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v)))),
+        h('button', { class: 'btn danger wide', onclick: remove }, 'Delete monitor'))
+      details.open = detailsOpen
       put(body,
-        h('div', { class: 'job instructions' }, m.instructions),
-        h('div', { class: 'meta' }, [m.agent, m.cwd && shortFolder(m.cwd), m.createdAt && `Created ${timeLabel(m.createdAt)}`].filter(Boolean).join(' · ')),
-        h('div', { class: 'section flush' }, 'Trigger'),
-        h('div', { class: 'trigger' }, MV.triggerLine(m.trigger)),
-        m.trigger?.kind === 'check' && m.trigger.spec?.command ? h('div', { class: 'codebox mono' }, m.trigger.spec.command) : null,
+        m.description ? h('div', { class: 'desc' }, m.description) : null,
         h('div', { class: 'monitor-acts' },
           h('button', { class: 'btn primary', disabled: running || acting, onclick: runNow }, running ? 'Running…' : 'Run now'),
           h('button', { class: 'btn ghost', disabled: acting, onclick: toggle }, m.enabled ? 'Pause' : 'Resume')),
@@ -1843,8 +1851,7 @@ function openMonitor(summary, fromList = false) {
         m.runs?.length
           ? h('div', { class: 'card runs' }, m.runs.map((r) => runRow(m, r)))
           : h('div', { class: 'meta' }, m.enabled ? `No runs yet. ${MV.nextLabel(m)}.` : 'No runs yet.'),
-        h('div', { style: 'height:22px' }),
-        h('button', { class: 'btn danger wide', onclick: remove }, 'Delete monitor'),
+        details,
       )
     }
 

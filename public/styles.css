@@ -459,13 +459,24 @@ a.cardrow { color: inherit; text-decoration: none }
 .agent-input input:focus { border-color: var(--accent) }
 .agent-input .btn { height: 46px; flex: none }
 
-/* monitors: a list like Workers; a monitor's page shows its instructions, trigger and runs */
+/* monitors: a list like Workers; a monitor's page: what it does, Run now / Pause, its runs, then Details (closed) */
 .monitor-row.paused .t { color: var(--muted) }
-.monitor-page .instructions { white-space: pre-wrap; user-select: text }
+.monitor-row .desc { color: var(--text); font-size: 14.5px; line-height: 1.35; margin: 1px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.monitor-page .desc { font-size: 16.5px; line-height: 1.45; user-select: text }
 .section.flush { padding: 22px 0 8px }
-.monitor-page .trigger { font-size: 15.5px }
-.monitor-page .trigger + .codebox { margin-top: 8px }
-.monitor-acts { display: flex; gap: 12px; margin-top: 18px }
+.monitor-acts { display: flex; gap: 12px; margin-top: 16px }
+.monitor-page .pagebody > .monitor-acts:first-child { margin-top: 0 }
+.monitor-details { margin-top: 26px; border-top: 1px solid var(--line) }
+.monitor-details > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 16px 2px; color: var(--muted); font-size: 15px; font-weight: 600; cursor: pointer; user-select: none }
+.monitor-details > summary::-webkit-details-marker { display: none }
+.monitor-details > summary span { color: var(--faint); transition: transform .15s }
+.monitor-details[open] > summary span { transform: rotate(90deg) }
+.monitor-details > .section.flush:first-of-type { padding-top: 4px }
+.monitor-details .instructions { font-size: 14.5px; line-height: 1.5; word-break: normal; overflow-wrap: anywhere }
+.card.facts { margin: 18px 0 }
+.card.facts .cardrow { min-height: 48px; padding: 12px 16px; justify-content: space-between }
+.card.facts .k { color: var(--muted); font-size: 14.5px; flex: none }
+.card.facts .v { font-size: 14.5px; text-align: right; min-width: 0; overflow-wrap: anywhere }
 .monitor-acts .btn { flex: 1 }
 .card.runs { margin: 0 }
 .run-row { align-items: flex-start; gap: 12px }
