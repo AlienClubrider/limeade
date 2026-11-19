@@ -6,6 +6,7 @@
 
   function inline(s) {
     const codes = []
+    const chips = []
     s = s.replace(/`([^`]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`)
     s = esc(s)
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, href) => {
@@ -13,16 +14,16 @@
       if (/^(https?:|mailto:)/i.test(h)) return `<a href="${esc(h)}" target="_blank" rel="noopener">${text}</a>`
       // A file the agent made (a diagram, a page): opened through the hub, with its path to copy as well.
       const path = localPath(h)
-      // (The paths go in as code spans, so the bold and italic rules below leave their _ and * alone.)
+      // (Paths are held aside until the end, so the bold and italic rules below leave their _ and * alone.)
       const code = (c) => `\u0000${codes.push(c) - 1}\u0000`
-      if (path) return `<a href="${esc(fileHref(path))}" target="_blank" rel="noopener">${text}</a> ${code(path)}`
+      if (path) return `<a href="${esc(fileHref(path))}" target="_blank" rel="noopener">${text}</a> \u0001${chips.push(path) - 1}\u0001`
       // Anything else can't be opened here, so show where it pointed instead of leaving bare text.
       return `${text} ${code(h)}`
     })
     s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+[^\s<).,;:!?'"])/g, (m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener">${url}</a>`)
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>')
     s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>')
-    return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`)
+    return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`).replace(/\u0001(\d+)\u0001/g, (_, i) => pathChip(chips[+i]))
   }
 
   /** "/abs/file", "~/file" or "file:///abs/file" as a path, else null. */
@@ -31,6 +32,14 @@
     try { p = decodeURIComponent(p) } catch {}
     return /^(\/|~\/)[^/]/.test(p) && !/[?#]/.test(p) ? p : null
   }
+
+  /**
+   * A linked file's short name ("Test.java:72"), with its whole path on hover and copied on a tap (app.js),
+   * so a reply full of links doesn't repeat long paths that wrap across lines.
+   */
+  const pathChip = (path) =>
+    `<button type="button" class="pathchip" data-path="${esc(path)}" title="${esc(path)}" aria-label="Copy path ${esc(path)}"><span>${esc(path.replace(/\/+$/, '').split('/').at(-1) || path).replace(/(:\d+(:\d+)?)$/, '<wbr>$1')}</span>${COPY_ICON}</button>`
+  const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>'
 
   /** Where the hub serves a file under home; each part encoded, so the file's own relative links still work. */
   const fileHref = (path) => '/files' + (path.startsWith('~') ? '/' : '') + path.split('/').map((p) => encodeURIComponent(p).replace(/[_*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join('/')

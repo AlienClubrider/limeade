@@ -94,6 +94,10 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .md a { color: var(--accent2); text-decoration: none }
 .md code { color: var(--text); background: var(--surface2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; font-size: .86em; overflow-wrap: anywhere; box-decoration-break: clone; -webkit-box-decoration-break: clone }
 .md pre { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 10px 0; overflow-x: auto; font-size: 13px; line-height: 1.55 }
+.md .pathchip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; vertical-align: baseline; color: var(--muted); background: var(--surface2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font: 400 .8em/1.4 'IBM Plex Mono', ui-monospace, monospace; overflow-wrap: break-word; text-align: left; cursor: pointer }
+.md .pathchip span { min-width: 0; overflow-wrap: anywhere }
+.md .pathchip:hover { color: var(--text); border-color: var(--line2) }
+.md .pathchip svg { flex: none; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round }
 .md pre code { color: var(--text); background: none; border: 0; padding: 0; font-size: inherit; overflow-wrap: normal }
 .md blockquote { margin: 6px 0; padding-left: 12px; border-left: 3px solid var(--line2); color: var(--muted) }
 .md table { border-collapse: collapse; margin: 8px 0; font-size: 14.5px; display: block; overflow-x: auto }

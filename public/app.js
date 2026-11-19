@@ -56,6 +56,12 @@ function toast(text) {
   toastTimer = setTimeout(() => (toastEl.hidden = true), 2600)
 }
 
+// A linked file's name chip in a reply (md.js) copies its whole path.
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest?.('.pathchip')
+  if (chip) navigator.clipboard?.writeText(chip.dataset.path).then(() => toast('Path copied'), () => toast(chip.dataset.path))
+})
+
 // ---------- hub API ----------
 
 class HubError extends Error {
