@@ -326,3 +326,38 @@ export interface AgentShelf {
   writeMcp(id: string, server: McpServer): Promise<void>
   removeMcp(id: string): Promise<void>
 }
+
+/** Monitors and their run logs, kept between restarts. */
+export interface MonitorStore {
+  list(): Promise<import('./domain/monitors.ts').Monitor[]>
+  save(m: import('./domain/monitors.ts').Monitor): Promise<void>
+  remove(id: string): Promise<void>
+  writeLog(id: string, runId: string, text: string): Promise<void>
+  readLog(id: string, runId: string): Promise<string | null>
+  removeLog(id: string, runId: string): Promise<void>
+}
+
+/** Runs a monitor's check: a shell command in its folder, with a time limit. */
+export interface CheckRunner {
+  run(command: string, cwd: string): Promise<{ output: string; code: number | null; error?: string }>
+}
+
+/** One unattended agent turn for a monitor run: no chat, nobody to approve anything. */
+export interface MonitorTurn {
+  prompt: string
+  cwd: string
+  /** The agent to run as ("apologist"), or null for none. */
+  agent: string | null
+  /** Told on top of the agent's own instructions (how to end the run). */
+  note: string
+  signal: AbortSignal
+  onEvent: (e: EngineEvent) => void
+  /** The turn runs in a process that outlives the hub; `handle` picks it up again. */
+  onStart?: (handle: string) => void
+}
+
+export interface MonitorTurns {
+  run(t: MonitorTurn): Promise<TurnResult>
+  /** Follows a turn an earlier hub started to its end; null when there's nothing to pick up. */
+  reattach(handle: string, t: MonitorTurn): Promise<TurnResult | null>
+}

@@ -26,6 +26,7 @@ import { MAX_FILE_BYTES, isPreviewableImage, type StoredAttachment } from '../do
 import type { MachineModels } from '../app/machine-models.ts'
 import type { Agents } from '../app/agents.ts'
 import type { SharedConfig } from '../app/shared-config.ts'
+import type { Monitors } from '../app/monitors.ts'
 
 export interface HttpOptions {
   key: string
@@ -48,6 +49,8 @@ export interface HttpOptions {
   /** Skills, agents and MCP servers for Claude Code and Codex together; served here instead of by Toolbox. */
   shared?: SharedConfig | null
   workers: WorkerSource
+  /** Recurring, unattended agent jobs (the Monitors page). */
+  monitors?: Monitors | null
   /** Folders a plain chat can work in (under home on this box). */
   folders?: HomeFolders | null
   /** Files under home that a reply links to (a diagram, a page), opened from the link. */
@@ -100,6 +103,7 @@ export function createHub(o: HttpOptions): Server {
   }
   for (const ev of ['pull', 'local_models']) o.machineModels?.on(ev, (data) => broadcast(ev, data))
   o.agents?.on('agents', (data) => broadcast('agents', data))
+  o.monitors?.on('monitors', (data) => broadcast('monitors', data))
 
   /** What Settings shows besides notifications: this computer's name, the Ollama address (when it's used directly). */
   function hubSettings() {
@@ -283,6 +287,21 @@ export function createHub(o: HttpOptions): Server {
           broadcast('workers', {})
           return json(res, 200, { ok: true })
         }
+      }
+      // Monitors: recurring agent jobs (the Monitors page, `limeade monitor`).
+      if (o.monitors && parts[0] === 'monitors') {
+        const mon = o.monitors
+        const p = parts.slice(1).map(pathPart)
+        if (p.length === 0 && m === 'GET') return json(res, 200, mon.list())
+        if (p.length === 0 && m === 'POST') return json(res, 201, await mon.create(await readJson(req, SMALL)))
+        if (p.length === 1 && m === 'GET') return json(res, 200, mon.get(p[0]!))
+        if (p.length === 1 && m === 'PATCH') return json(res, 200, await mon.update(p[0]!, await readJson(req, SMALL)))
+        if (p.length === 1 && m === 'DELETE') {
+          await mon.remove(p[0]!)
+          return json(res, 200, { ok: true })
+        }
+        if (p.length === 2 && p[1] === 'run' && m === 'POST') return json(res, 202, await mon.runNow(p[0]!))
+        if (p.length === 3 && p[1] === 'runs' && m === 'GET') return json(res, 200, await mon.runLog(p[0]!, p[2]!))
       }
       if (parts[0] === 'push' && o.push) return await pushRoute(parts[1] ?? '', m ?? '', req, res)
       if (m === 'GET' && route === '/stream') return liveStream(url, res)

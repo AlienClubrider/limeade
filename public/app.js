@@ -120,6 +120,8 @@ const S = {
   seenAt: Number(localStorage.getItem('assistantSeen') || Date.now()),
   workers: null,
   workersError: null,
+  monitors: null,
+  monitorsError: null,
   tools: null,
   toolsError: null,
   toolKind: 'skill', // which of the MCP, Skills and Agents pages is showing
@@ -214,6 +216,7 @@ function connect() {
     openChatView()?.load()
     if (S.chats) loadChats()
     loadWorkers()
+    if (S.monitors || S.tab === 'monitors') monitorsChanged()
   })
   es.onerror = () => {
     S.connected = false
@@ -221,7 +224,7 @@ function connect() {
     // EventSource retries on its own; if it gave up (e.g. Access signed out), try again later.
     if (es.readyState === EventSource.CLOSED) setTimeout(connect, 5000)
   }
-  for (const name of ['message', 'delta', 'live', 'step', 'busy', 'approval', 'approval_done', 'notice', 'workers', 'fleet_mode', 'inbox', 'chat', 'pull', 'local_models', 'agents']) {
+  for (const name of ['message', 'delta', 'live', 'step', 'busy', 'approval', 'approval_done', 'notice', 'workers', 'fleet_mode', 'inbox', 'chat', 'pull', 'local_models', 'agents', 'monitors']) {
     es.addEventListener(name, (e) => {
       let data = {}
       try { data = JSON.parse(e.data) } catch {}
@@ -234,6 +237,7 @@ function onEvent(name, d) {
   if (name === 'pull' || name === 'local_models') return onLocalEvent(name, d)
   if (name === 'agents') return onAgentsEvent()
   if (name === 'notice' || name === 'workers') { loadWorkers(); return }
+  if (name === 'monitors') return monitorsChanged()
   if (name === 'inbox') { setInbox(d.items || []); return }
   if (name === 'chat') return chatChanged(d)
   if (name === 'approval_done') {
@@ -293,6 +297,8 @@ setInterval(() => {
 }, 15000)
 setInterval(() => { if (document.visibilityState === 'visible' && S.tab === 'workers') loadWorkers() }, 4000)
 setInterval(() => { if (document.visibilityState === 'visible' && S.tab !== 'workers') loadWorkers() }, 30000)
+// "Next in 12 min" and "5 min ago" move on by themselves.
+setInterval(() => { if (document.visibilityState === 'visible' && S.tab === 'monitors') paintMonitors() }, 30000)
 
 // ---------- Assistant ----------
 
@@ -1134,6 +1140,7 @@ function panelClosed() {
   if (!S.panelFor) return
   S.panelFor = null
   paintWorkers()
+  paintMonitors()
   paintChats()
   if (S.tools) paintToolbox()
 }
@@ -1558,6 +1565,156 @@ function openWorker(summary, fromList = false) {
       h('button', { class: 'btn danger wide', onclick: stop }, 'Stop worker'),
     )
   }, { fromList })
+}
+
+// ---------- Monitors: recurring jobs the Assistant set up; watched here, not chatted with ----------
+
+const MV = window.monitorView
+/** Open monitor and run pages: each repaints itself when the hub says a monitor or run changed. */
+const monitorPages = new Set()
+
+async function loadMonitors() {
+  try {
+    S.monitors = MV.listFrom(await api('GET', '/monitors'))
+    S.monitorsError = null
+  } catch (e) { S.monitorsError = e.message }
+  paintMonitors()
+}
+
+function monitorsChanged() {
+  loadMonitors()
+  for (const p of [...monitorPages]) p.isConnected ? p.refresh() : monitorPages.delete(p)
+}
+
+function paintMonitors() {
+  const box = $('#monitors')
+  box.replaceChildren()
+  if (S.monitorsError) return box.append(h('div', { class: 'note' }, S.monitorsError))
+  if (!S.monitors) return box.append(h('div', { class: 'working' }, h('span', { class: 'spin' })))
+  if (!S.monitors.length) box.append(h('div', { class: 'note' }, 'No monitors yet. Ask the Assistant to create one.'))
+  S.monitors.forEach((m) => box.append(monitorRow(m)))
+}
+
+function monitorRow(m) {
+  const run = m.lastRun
+  const running = MV.isRunning(m)
+  return h('button', { class: 'row-item monitor-row' + (m.enabled ? '' : ' paused') + (S.panelFor === `m:${m.id}` ? ' on' : ''), onclick: () => openMonitor(m, true) },
+    h('span', { class: `state-dot ${MV.dotClass(run?.status)}${running ? ' pulse' : ''}` }),
+    h('div', { class: 'body' },
+      h('div', { class: 'line1' }, h('span', { class: 't' }, m.name), run?.startedAt ? h('span', { class: 'ago' }, ago(run.startedAt)) : null),
+      h('div', { class: 's one' }, `${MV.triggerLine(m.trigger)} · ${MV.nextLabel(m)}`),
+      running
+        ? h('div', { class: 'now' }, m.agent ? h('span', { class: 'agent' }, `${m.agent} · `) : null, h('span', { class: 'shimmer' }, `${MV.runLine(run)}…`))
+        : h('div', { class: 'now quiet' }, [m.agent, MV.runLine(run)].filter(Boolean).join(' · '))))
+}
+
+/** "Every 30 min · Next in 12 min" under the name, with the last run's dot. */
+function monitorSub(m) {
+  return [h('span', { class: `dot ${MV.dotClass(m.lastRun?.status)}` }), `${MV.triggerLine(m.trigger)} · ${MV.nextLabel(m)}`]
+}
+
+function openMonitor(summary, fromList = false) {
+  if (fromList) { S.panelFor = `m:${summary.id}`; paintMonitors() }
+  openPage(async (page) => {
+    page.classList.add('full-page', 'monitor-page')
+    const body = h('div', { class: 'pagebody' }, h('div', { class: 'working' }, h('span', { class: 'spin' })))
+    const sub = h('div', { class: 'sub' }, monitorSub(summary))
+    const bar = pageBar(summary.name, sub)
+    const title = bar.querySelector('h1')
+    page.append(bar, body)
+    const path = `/monitors/${encodeURIComponent(summary.id)}`
+    let m = null
+    let acting = false
+
+    async function refresh() {
+      try { m = await api('GET', path) } catch (e) {
+        if (e.status === 404) { monitorPages.delete(page); if (page.isConnected) { toast(`${summary.name} was deleted`); closePage() } return }
+        if (!m) body.replaceChildren(h('div', { class: 'error-line' }, e.message))
+        return
+      }
+      paint()
+    }
+    async function act(fn, done) {
+      if (acting) return
+      acting = true
+      paint()
+      try { await fn(); if (done) toast(done) } catch (e) { toast(e.status === 409 ? `${m.name} is already running` : e.message) }
+      acting = false
+      await refresh()
+      loadMonitors()
+    }
+    const runNow = () => act(() => api('POST', `${path}/run`), 'Running now')
+    const toggle = () => act(() => api('PATCH', path, { enabled: !m.enabled }), m.enabled ? 'Paused' : 'Resumed')
+    const remove = () => dialog({
+      title: `Delete ${m.name}?`, text: 'It stops running and its run history goes with it. Ask the Assistant if you want it back.',
+      ok: 'Delete', danger: true,
+      onOk: async () => {
+        try { await api('DELETE', path); monitorPages.delete(page); toast(`Deleted ${m.name}`); closePage(); loadMonitors() } catch (e) { toast(e.message) }
+      },
+    })
+
+    function paint() {
+      title.textContent = m.name
+      put(sub, monitorSub(m))
+      const running = MV.isRunning(m)
+      put(body,
+        h('div', { class: 'job instructions' }, m.instructions),
+        h('div', { class: 'meta' }, [m.agent, m.cwd && shortFolder(m.cwd), m.createdAt && `Created ${timeLabel(m.createdAt)}`].filter(Boolean).join(' · ')),
+        h('div', { class: 'section flush' }, 'Trigger'),
+        h('div', { class: 'trigger' }, MV.triggerLine(m.trigger)),
+        m.trigger?.kind === 'check' && m.trigger.spec?.command ? h('div', { class: 'codebox mono' }, m.trigger.spec.command) : null,
+        h('div', { class: 'monitor-acts' },
+          h('button', { class: 'btn primary', disabled: running || acting, onclick: runNow }, running ? 'Running…' : 'Run now'),
+          h('button', { class: 'btn ghost', disabled: acting, onclick: toggle }, m.enabled ? 'Pause' : 'Resume')),
+        h('div', { class: 'section flush' }, 'Runs'),
+        m.runs?.length
+          ? h('div', { class: 'card runs' }, m.runs.map((r) => runRow(m, r)))
+          : h('div', { class: 'meta' }, m.enabled ? `No runs yet. ${MV.nextLabel(m)}.` : 'No runs yet.'),
+        h('div', { style: 'height:22px' }),
+        h('button', { class: 'btn danger wide', onclick: remove }, 'Delete monitor'),
+      )
+    }
+
+    page.refresh = refresh
+    monitorPages.add(page)
+    await refresh()
+  }, { fromList })
+}
+
+function runRow(m, r) {
+  const running = r.status === 'running'
+  return h('button', { class: 'cardrow run-row', onclick: () => openRun(m, r) },
+    h('span', { class: `state-dot ${MV.dotClass(r.status)}${running ? ' pulse' : ''}` }),
+    h('div', { class: 'grow' },
+      h('div', { class: 'when' }, [MV.statusWord(r.status), timeLabel(r.startedAt), MV.took(r)].filter(Boolean).join(' · ')),
+      r.summary ? h('div', { class: 'what' }, r.summary) : null),
+    svg(ICON.chevR))
+}
+
+function openRun(m, summary) {
+  openPage(async (page) => {
+    page.classList.add('full-page', 'run-page')
+    const sub = h('div', { class: 'sub' })
+    const body = h('div', { class: 'pagebody' }, h('div', { class: 'working' }, h('span', { class: 'spin' })))
+    page.append(pageBar(m.name, sub), body)
+    const path = `/monitors/${encodeURIComponent(m.id)}/runs/${encodeURIComponent(summary.id)}`
+    let r = null
+    function paint() {
+      put(sub, h('span', { class: `dot ${MV.dotClass(r.status)}` }), [MV.statusWord(r.status), timeLabel(r.startedAt), MV.took(r)].filter(Boolean).join(' · '))
+      put(body,
+        r.summary ? h('div', { class: 'job' }, r.summary) : null,
+        h('div', { class: 'section flush' }, 'Log'),
+        r.log ? h('pre', { class: 'codebox run-log' }, r.log) : h('div', { class: 'meta' }, r.status === 'running' ? 'Nothing logged yet.' : 'This run left no log.'))
+    }
+    page.refresh = async () => {
+      // A finished run's log never changes: only a running one is read again.
+      if (r && r.status !== 'running') return
+      try { r = await api('GET', path) } catch (e) { if (!r) body.replaceChildren(h('div', { class: 'error-line' }, e.message)); return }
+      paint()
+    }
+    monitorPages.add(page)
+    await page.refresh()
+  })
 }
 
 // ---------- Toolbox ----------
@@ -2193,7 +2350,7 @@ function openAgentSetup(agentId) {
 
 function setTab(tab) {
   if (tab === 'toolbox') tab = 'skill' // old links to the single Toolbox page
-  if (!['assistant', 'chat', 'workers', ...Object.keys(KIND)].includes(tab)) tab = 'assistant'
+  if (!['assistant', 'chat', 'workers', 'monitors', ...Object.keys(KIND)].includes(tab)) tab = 'assistant'
   if (wide.matches && tab !== S.tab) closeAllPages()
   // Leaving the Assistant while it was on screen: whatever arrived there has been seen.
   if (S.tab === 'assistant' && tab !== 'assistant' && document.visibilityState === 'visible') markSeen()
@@ -2203,8 +2360,8 @@ function setTab(tab) {
   for (const b of document.querySelectorAll('#drawer [data-tab]')) b.classList.toggle('on', b.dataset.tab === tab)
   if (tab === 'chat') sideOpenOnChat = false // Chat has its own list column: fold the sidebar
   paintSide()
-  $('#title').textContent = isTool ? KIND[tab][1] : { assistant: 'Assistant', chat: 'Chat', workers: 'Workers' }[tab]
-  for (const v of ['assistant', 'chat', 'workers']) $(`#view-${v}`).hidden = v !== tab
+  $('#title').textContent = isTool ? KIND[tab][1] : { assistant: 'Assistant', chat: 'Chat', workers: 'Workers', monitors: 'Monitors' }[tab]
+  for (const v of ['assistant', 'chat', 'workers', 'monitors']) $(`#view-${v}`).hidden = v !== tab
   $('#view-toolbox').hidden = !isTool
   const actions = $('#top-actions')
   actions.replaceChildren()
@@ -2213,6 +2370,7 @@ function setTab(tab) {
   if (tab === 'assistant') actions.append(h('button', { class: 'bell', 'aria-label': 'Needs you', onclick: openBell }, svg(ICON.bell), h('b', { class: 'badge', id: 'bell-count', hidden: true })))
   if (tab === 'assistant') { markSeen(); S.assistant.end.toEnd() }
   if (tab === 'workers') loadWorkers()
+  if (tab === 'monitors') loadMonitors()
   if (tab === 'chat') { paintChats(); loadChats(); if (!S.places) loadPlaces().then(paintChats) }
   if (isTool) { if (S.tools) paintToolbox(); else loadTools() }
   paintBadges()

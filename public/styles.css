@@ -178,7 +178,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .row-item .body { flex: 1; min-width: 0 }
 .row-item .line1 { display: flex; gap: 8px; align-items: baseline }
 .state-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 7px; flex: none }
-.st-working { background: var(--accent2) } .st-needs { background: var(--warn) } .st-idle { background: var(--faint) } .st-done { background: var(--good) }
+.st-working { background: var(--accent2) } .st-needs { background: var(--warn) } .st-idle { background: var(--faint) } .st-done { background: var(--good) } .st-failed { background: var(--danger) }
 .note { color: var(--faint); padding: 28px 20px 12px; font-size: 16px }
 .plugin-tag.warn { color: var(--accent2); border-color: var(--accent2) }
 .mirror-banner { background: var(--accentSoft) }
@@ -369,7 +369,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   .sent .bubble { margin: 0 }
 
   /* lists stay a comfortable width */
-  #workers, #toolbox { padding: 8px max(0px, calc((100% - 880px) / 2)) 24px }
+  #workers, #monitors, #toolbox { padding: 8px max(0px, calc((100% - 880px) / 2)) 24px }
   .row-item { border-radius: 12px; border-bottom-color: transparent; box-shadow: inset 0 -1px 0 var(--line) }
   .row-item.on { background: var(--accentSoft); box-shadow: none }
   .row-item.on .t { color: var(--accent2) }
@@ -458,3 +458,20 @@ a.cardrow { color: inherit; text-decoration: none }
 .agent-input input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; background: var(--bg); border: 1px solid var(--line2); border-radius: 14px; outline: 0; font-size: 16px }
 .agent-input input:focus { border-color: var(--accent) }
 .agent-input .btn { height: 46px; flex: none }
+
+/* monitors: a list like Workers; a monitor's page shows its instructions, trigger and runs */
+.monitor-row.paused .t { color: var(--muted) }
+.monitor-page .instructions { white-space: pre-wrap; user-select: text }
+.section.flush { padding: 22px 0 8px }
+.monitor-page .trigger { font-size: 15.5px }
+.monitor-page .trigger + .codebox { margin-top: 8px }
+.monitor-acts { display: flex; gap: 12px; margin-top: 18px }
+.monitor-acts .btn { flex: 1 }
+.card.runs { margin: 0 }
+.run-row { align-items: flex-start; gap: 12px }
+.run-row .state-dot { margin-top: 6px }
+.run-row .when { color: var(--muted); font-size: 13.5px }
+.run-row .what { font-size: 15px; line-height: 1.4; margin-top: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical }
+.run-row > span:last-child { color: var(--faint); align-self: center }
+.run-row svg { width: 18px; height: 18px }
+.run-log { margin: 0; font-size: 12.5px; line-height: 1.55; word-break: break-word }

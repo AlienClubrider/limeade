@@ -1,0 +1,4 @@
+#!/bin/sh
+# `limeade` on the PATH of every agent Limeade runs (the Assistant's `limeade monitor …`).
+here=$(cd "$(dirname "$0")" && pwd)
+exec "${LIMEADE_NODE:-node}" "$here/limeade.mjs" "$@"

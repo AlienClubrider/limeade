@@ -11,6 +11,8 @@ browser.
   OK).
 - **Workers**: agent sessions the Assistant starts, each in its own folder. They report back
   (`fleet status …`), and the Assistant hears when one is done, stuck or needs you.
+- **Monitors**: recurring jobs that run on their own, on a schedule or when a check changes. Ask the
+  Assistant for one; the Monitors page shows each one's runs and their logs.
 - **Chat**: your own chats with any model, each in a folder you pick.
 - **Notifications**: Web Push to this computer's browser (and your phone, if you set that up). Approvals
   can be answered from the notification.
@@ -84,6 +86,27 @@ The Assistant is told to hand off every job you'd follow to a worker, and to say
 `fleet start` succeeded. Its agent's own subagents (helpers inside one of its turns, which the Workers page can't
 show) are switched off in the Assistant, on Claude Code and on Codex; workers and Chat-page chats keep theirs.
 
+## Monitors
+
+A monitor is a job that runs every so often by itself: instructions, an optional agent to run as, a folder,
+and a trigger. The trigger is a schedule (`every 30 min`, `daily 21:00`, `weekdays 07:30`, `mon,wed,fri 9am`,
+in this computer's time zone) or a check: a cheap shell command run every few minutes, where the job runs
+when the command's output differs from the last look (the first look only records it; the exit code doesn't
+matter). Each run is one agent turn on the Assistant's agent and model, in auto mode, with nobody to approve
+anything: approvals are declined and the run is marked as needing you. A run that is still going when the
+next one is due makes that one a skipped run. Each monitor keeps its last 50 runs with their logs. Runs
+that fail or need you reach the Assistant like a worker's news; runs that went fine stay quiet. A run
+missed while Limeade was off happens once when it's back.
+
+The Assistant manages them with `limeade monitor` (on the PATH of every agent Limeade runs):
+
+```
+limeade monitor list | show <id> | log <id> [run]
+limeade monitor add "<name>" --when "<schedule>" (--text "<instructions>" | --file <file>) [--agent <name>] [--folder <dir>]
+limeade monitor add "<name>" --check "<command>" [--every "10 min"] (--text … | --file …)
+limeade monitor edit <id> … | pause <id> | resume <id> | run <id> | rm <id>
+```
+
 ## Use it from your phone (optional)
 
 Limeade only listens on this computer. To reach it from your phone, use [Tailscale](https://tailscale.com):
@@ -100,6 +123,7 @@ Anyone on your tailnet can open it, so keep the tailnet to your own devices.
 ```
 limeade status | start | stop | restart | logs | open
 limeade phone <name>          let Limeade answer to another name (see above)
+limeade monitor …             recurring jobs (see Monitors)
 limeade uninstall [--all]     remove the service and app (--all: chats, settings and keys too)
 ```
 

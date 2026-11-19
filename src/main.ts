@@ -42,6 +42,9 @@ import { displayFolder } from './domain/places.ts'
 import type { OllamaMachine } from './domain/local-models.ts'
 import { OllamaDirect } from './adapters/ollama-direct.ts'
 import { HubWorkers } from './app/workers.ts'
+import { Monitors } from './app/monitors.ts'
+import { AgentMonitorTurns } from './app/monitor-turns.ts'
+import { MonitorFiles, ShellCheck } from './adapters/monitor-files.ts'
 
 // limeade.env wins over a variable the service or shell already had (a stale provider key, say).
 applyEnvFiles(process.env, process.execArgv, (path) => {
@@ -260,12 +263,13 @@ function defaultAssistant() {
 }
 defaultAssistant()
 
+const localTurns = new LocalTurns({ withTools: localWithTools, chatOnly: localModels, usesTools: (m) => localModels.usesTools(m), gate: litellmGate })
 const conversations = new Conversations({
   store: new ChatFiles(join(stateDir, 'chats')),
   notices,
   engines: {
     claude: claudeTurns,
-    local: new LocalTurns({ withTools: localWithTools, chatOnly: localModels, usesTools: (m) => localModels.usesTools(m), gate: litellmGate }),
+    local: localTurns,
     codex: codexTurns,
     codexLocal,
   },
@@ -293,6 +297,23 @@ const workers = fl.kind === 'scripts'
       machine: cfg.machineName,
       hasPersona: async (id, agent) => (agent === 'codex' ? (await shared.instructions(id)) !== null : shared.hasAgent(id, 'claude')),
     })
+
+// Monitors: recurring agent jobs, each run one turn on the Assistant's agent and model (like its workers).
+// Failed and needs-you runs become fleet events, the same news the Assistant gets about workers.
+const monitors = new Monitors({
+  store: new MonitorFiles(join(stateDir, 'monitors')),
+  turns: new AgentMonitorTurns({
+    engines: { claude: claudeTurns, local: localTurns, codex: codexTurns, codexLocal },
+    assistant: () => conversations.get(ASSISTANT_ID),
+  }),
+  checks: new ShellCheck({ env: () => ({ ...process.env, ...fleetEnv, ...keys() }) }),
+  news: fleet,
+  resolveFolder: (path) => homeFolders.resolve(path),
+  defaultFolder: workDir,
+  hasAgent: async (id) => (await shared.hasAgent(id, 'claude')) || (await shared.instructions(id)) !== null,
+})
+await monitors.load()
+monitors.start()
 
 // Limeade (browser): Cloudflare Access sign-in when the server has it, else the browser on this computer; Web Push.
 const access = cfg.access
@@ -339,6 +360,7 @@ createHub({
   defaultFolder: workDir,
   oneShot: { claude: claudeCli, local: localModels },
   workers,
+  monitors,
   shared,
   toolbox: toolboxKey ? { url: cfg.toolboxUrl, key: toolboxKey } : null,
   version,
