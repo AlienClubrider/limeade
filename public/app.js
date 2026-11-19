@@ -602,16 +602,20 @@ function composer({ hint, onSend, chips, busy, onStop, upload }) {
     if ((!text && !files.length) || sending) return
     if (uploading()) return toast('Still uploading…')
     sending = true
+    // The text leaves the box as it goes, so Enter can't send it twice; anything typed meanwhile is new.
+    const sent = files
+    ta.value = ''
+    grow()
     paint()
     try {
-      await onSend(text, files.map((f) => f.done))
-      // Anything he typed while it was sending stays.
-      if (ta.value.trim() === text) ta.value = ''
-      for (const f of files) if (f.preview) URL.revokeObjectURL(f.preview)
-      files = []
+      await onSend(text, sent.map((f) => f.done))
+      for (const f of sent) if (f.preview) URL.revokeObjectURL(f.preview)
+      files = files.filter((f) => !sent.includes(f))
       paintTray()
-      grow()
-    } catch (e) { toast(e.message) } finally { sending = false; paint() }
+    } catch (e) {
+      if (text) { ta.value = composerDraft.afterFailedSend(text, ta.value); grow() }
+      toast(e.message)
+    } finally { sending = false; paint() }
   }
   function attachSheet() {
     // The input is clicked inside the tap itself (phones only open pickers from a tap).
@@ -697,7 +701,7 @@ function composer({ hint, onSend, chips, busy, onStop, upload }) {
   ta.addEventListener('input', () => { grow(); paint() })
   // Enter sends on a computer; on phones Enter is a new line (the arrow sends).
   ta.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && matchMedia('(hover: hover) and (pointer: fine)').matches) { e.preventDefault(); send() }
+    if (composerDraft.sendsOnEnter(e, matchMedia('(hover: hover) and (pointer: fine)').matches)) { e.preventDefault(); send() }
   })
   el.setChips = (list) => chipsBox.replaceChildren(...list)
   el.setBusy = (b) => { el.busy = b; paint() }

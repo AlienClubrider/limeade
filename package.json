@@ -24,7 +24,7 @@
     "start": "node src/main.ts",
     "test": "node --test \"test/*.test.ts\" \"deploy/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "lint:web": "node --check public/app.js && node --check public/md.js && node --check public/clip.js && node --check public/list-width.js && node --check public/live-turn.js && node --check public/follow.js && node --check public/on-screen.js && node --check public/sw.js && node --check bin/limeade.mjs",
+    "lint:web": "node --check public/app.js && node --check public/md.js && node --check public/clip.js && node --check public/list-width.js && node --check public/live-turn.js && node --check public/follow.js && node --check public/on-screen.js && node --check public/composer-draft.js && node --check public/sw.js && node --check bin/limeade.mjs",
     "check": "npm run typecheck && npm run lint:web && npm test"
   },
   "devDependencies": {
