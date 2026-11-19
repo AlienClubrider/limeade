@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, symlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { displayFolder, folderPath, insideHome, isClutter, machines, matchesSearch, recentFolders } from '../src/domain/places.ts'
+import { displayFolder, folderPath, insideHome, isClutter, machines, matchesSearch, recentFolders, sourceRef } from '../src/domain/places.ts'
 import { HomeFolderTree } from '../src/adapters/home-folders.ts'
 
 const HOME = '/home/alex'
@@ -107,4 +107,15 @@ test('home folders: search finds shallow matches first and skips clutter', async
   assert.equal(found[0], join(home, 'dev/notes-app'))
   assert.deepEqual(await f.search('node_modules'), [])
   assert.deepEqual(await f.search(''), [])
+})
+
+test('a source reference: path:line and path:line:col split off the path, anything else is just a path', () => {
+  assert.deepEqual(sourceRef('/Users/me/p/Test.java:72'), { path: '/Users/me/p/Test.java', line: 72 })
+  assert.deepEqual(sourceRef('~/p/My Test.java:72:5'), { path: '~/p/My Test.java', line: 72, column: 5 })
+  assert.deepEqual(sourceRef('/p/a:b.txt:3'), { path: '/p/a:b.txt', line: 3 })
+  assert.equal(sourceRef('/p/Test.java'), null)
+  assert.equal(sourceRef('/p/Test.java:0'), null)
+  assert.equal(sourceRef('/p/Test.java:'), null)
+  assert.equal(sourceRef('/p/:72'), null)
+  assert.equal(sourceRef('/p/Test.java:x'), null)
 })

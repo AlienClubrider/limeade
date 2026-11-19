@@ -10,7 +10,8 @@ import { claudeGroup } from '../domain/models.ts'
 import { FailedAuthBan, SlidingWindowLimit, keyMatches } from '../domain/limits.ts'
 import { HubError, type Conversations } from '../app/conversations.ts'
 import type { AgentSetup, FleetModeStore, HomeFiles, HomeFolders, KeyValue, LocalModels, NoticeLog, OneShot, WorkerSource } from '../ports.ts'
-import { displayFolder, machines, recentFolders } from '../domain/places.ts'
+import { displayFolder, machines, recentFolders, sourceRef } from '../domain/places.ts'
+import { fileProblemPage, isText, sourcePage } from './file-pages.ts'
 import { draftPrompt, isToolKind, parseDraft } from '../domain/toolbox-draft.ts'
 import type { AccessCheck } from '../domain/access.ts'
 import { ollamaUrl } from '../domain/local-models.ts'
@@ -181,7 +182,7 @@ export function createHub(o: HttpOptions): Server {
 
       if (m === 'GET' && route === '/places') return json(res, 200, places())
       if (m === 'GET' && route === '/folders') return json(res, 200, await folders(url))
-      if (m === 'GET' && route.startsWith('/files/')) return await sendHomeFile(res, route)
+      if (m === 'GET' && route.startsWith('/files/')) return await sendHomeFile(req, res, route)
 
       // Chats and the Assistant ("assistant" is just a chat id with its own rules).
       if (parts[0] === 'chats') {
@@ -305,7 +306,10 @@ export function createHub(o: HttpOptions): Server {
       throw new HubError(404, 'Not found')
     } catch (err) {
       const status = err instanceof HubError ? err.status : 500
-      if (!res.headersSent) json(res, status, { error: err instanceof HubError ? err.message : 'Internal error' })
+      const error = err instanceof HubError ? err.message : 'Internal error'
+      // A linked file opened in the browser gets a page with a way back, not raw JSON.
+      if (!res.headersSent && route.startsWith('/files/') && opensAsPage(req)) sendPage(res, status, fileProblemPage(error), "default-src 'none'; style-src 'unsafe-inline'")
+      else if (!res.headersSent) json(res, status, { error })
       else res.end()
       if (!(err instanceof HubError)) log(`error on ${redact(route)}: ${(err as Error).message}`)
     }
@@ -396,8 +400,11 @@ export function createHub(o: HttpOptions): Server {
     }
   }
 
-  /** A file under home that a reply links to: /files/<absolute path> or /files/~/<path>, so its own relative links work too. */
-  async function sendHomeFile(res: ServerResponse, route: string) {
+  /**
+   * A file under home that a reply links to: /files/<absolute path> or /files/~/<path>, so its own relative
+   * links work too. "<path>:72" or "<path>:72:5" that isn't itself a file goes to the file at line 72.
+   */
+  async function sendHomeFile(req: IncomingMessage, res: ServerResponse, route: string) {
     if (!o.files) throw new HubError(503, 'Files are not set up on this hub')
     let asked: string
     try {
@@ -406,9 +413,20 @@ export function createHub(o: HttpOptions): Server {
       throw new HubError(400, 'Bad path')
     }
     const path = await o.files.resolveFile(asked.startsWith('~') ? asked : `/${asked}`)
-    if (!path) throw new HubError(404, 'That file is not inside your home folder, or does not exist')
+    if (!path) {
+      const ref = sourceRef(asked)
+      if (ref && (await o.files.resolveFile(ref.path.startsWith('~') ? ref.path : `/${ref.path}`))) {
+        res.writeHead(302, { Location: `/files/${ref.path.split('/').map(encodeURIComponent).join('/')}#L${ref.line}`, 'Cache-Control': 'no-store' })
+        return res.end()
+      }
+      throw new HubError(404, 'That file is not inside your home folder, or does not exist')
+    }
     const size = (await fs.stat(path)).size
     if (size > MAX_FILE_BYTES) throw new HubError(413, 'That file is too big to open here')
+    if (opensAsPage(req) && size <= SOURCE_PAGE_BYTES && !OPENS_AS_ITSELF.test(OPENS_AS[extname(path).toLowerCase()] ?? '')) {
+      const bytes = await fs.readFile(path)
+      if (isText(bytes)) return sendPage(res, 200, sourcePage(path, bytes.toString('utf8')), "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+    }
     sendHomeFileBody(res, path, size)
   }
 
@@ -546,6 +564,31 @@ function sendAttachment(res: ServerResponse, file: StoredAttachment) {
     'Cache-Control': 'private, max-age=604800, immutable',
   })
   createReadStream(file.path).on('error', () => res.destroy()).pipe(res)
+}
+
+/** Text files up to this size open as numbered lines when the browser goes to them. */
+const SOURCE_PAGE_BYTES = 2 * 1024 * 1024
+/** Linked files the browser shows as they are (pages, pictures, PDFs); other text opens as numbered lines. */
+const OPENS_AS_ITSELF = /^(text\/html|image\/|application\/pdf)/
+
+/**
+ * The browser itself going to the address (a tapped link), not a page's script, style or fetch, which
+ * must get the file as it is. Without Sec-Fetch-Dest, an Accept that asks for HTML.
+ */
+function opensAsPage(req: IncomingMessage): boolean {
+  const dest = req.headers['sec-fetch-dest']
+  return dest ? dest === 'document' : /text\/html/.test(String(req.headers.accept ?? ''))
+}
+
+function sendPage(res: ServerResponse, status: number, html: string, csp: string) {
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': Buffer.byteLength(html),
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': csp,
+    'Cache-Control': 'no-store',
+  })
+  res.end(html)
 }
 
 /** What a linked file opens as in the browser; anything else downloads. */

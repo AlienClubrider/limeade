@@ -9,7 +9,7 @@ import type { Notice } from '../src/ports.ts'
 import { MachineModels } from '../src/app/machine-models.ts'
 import { RestartGate } from '../src/domain/restart-gate.ts'
 import { HomeFolderTree } from '../src/adapters/home-folders.ts'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -342,6 +342,62 @@ test('files a reply links to open from home, sandboxed, and nothing outside home
     assert.equal((await h.call('/files/~/%2E%2E/outside.html')).status, 404)
     assert.equal((await h.call('/files/~/%E0')).status, 400)
     assert.equal((await fetch(`${h.base}/files/~/dev/purger/diagram.html`, { headers: { 'cf-connecting-ip': '203.0.113.9' } })).status, 401)
+  } finally {
+    h.close()
+  }
+})
+
+test('a file link with :line opens the file at that line, and one that cannot open says so in a page (issue #15)', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hub-lines-')))
+  const home = join(root, 'home')
+  const dir = join(home, 'dev/purger/src')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'Test.java'), Array.from({ length: 80 }, (_, i) => `// line ${i + 1} <b>`).join('\n'))
+  writeFileSync(join(dir, 'My Test.java'), 'class T {}')
+  writeFileSync(join(dir, 'notes:7'), 'a file whose name really ends in :7')
+  writeFileSync(join(dir, 'diagram.html'), '<h1>d</h1>')
+  writeFileSync(join(dir, 'app.js'), 'go()')
+  writeFileSync(join(dir, 'blob.bin'), Buffer.from([0, 1, 2]))
+  writeFileSync(join(root, 'outside.java'), 'no')
+  symlinkSync(join(root, 'outside.java'), join(dir, 'link.java'))
+  const h = await start({ files: new HomeFolderTree(home) })
+  const page = { headers: { 'sec-fetch-dest': 'document' } }
+  try {
+    // What md.js makes of [Failure logging](<home>/dev/purger/src/Test.java:72): the ":" encoded into the name.
+    const at = async (p: string) => (await h.call(p, { redirect: 'manual' })).headers.get('location')
+    assert.equal(await at(`/files${home}/dev/purger/src/Test.java%3A72`), `/files${home}/dev/purger/src/Test.java#L72`)
+    assert.equal(await at(`/files${home}/dev/purger/src/Test.java:72:5`), `/files${home}/dev/purger/src/Test.java#L72`)
+    assert.equal(await at('/files/~/dev/purger/src/My%20Test.java%3A3'), '/files/~/dev/purger/src/My%20Test.java#L3')
+    assert.equal((await h.call(`/files${home}/dev/purger/src/Test.java%3A72`)).status, 200) // followed, it opens
+    // Without a line, and a file that really is named "notes:7", open as they are.
+    assert.equal((await h.call(`/files${home}/dev/purger/src/Test.java`)).status, 200)
+    assert.equal(await (await h.call('/files/~/dev/purger/src/notes%3A7')).text(), 'a file whose name really ends in :7')
+    // A line on a missing file, outside home, through "..", or through a link out of home: still refused.
+    for (const p of [`${home}/dev/purger/src/Nope.java%3A3`, `${root}/outside.java%3A1`, '~/dev/%2E%2E/%2E%2E/outside.java%3A1', `${home}/dev/purger/src/link.java%3A1`]) {
+      assert.equal((await h.call(`/files/${p.replace(/^\//, '')}`, { redirect: 'manual' })).status, 404, p)
+    }
+
+    // Tapped, a text file opens as numbered lines (escaped, no scripts), so #L72 lands on line 72.
+    const src = await h.call(`/files${home}/dev/purger/src/Test.java`, page)
+    assert.equal(src.headers.get('content-type'), 'text/html; charset=utf-8')
+    assert.match(src.headers.get('content-security-policy')!, /default-src 'none'.*sandbox/)
+    const html = await src.text()
+    assert.match(html, /<div class="l" id="L72"><a href="#L72">72<\/a><span>\/\/ line 72 &lt;b&gt;<\/span><\/div>/)
+    assert.doesNotMatch(html, /<script/)
+    // Pages, binaries, and a page's own script loaded by it, stay as they were.
+    assert.equal(await (await h.call(`/files${home}/dev/purger/src/diagram.html`, page)).text(), '<h1>d</h1>')
+    assert.match((await h.call(`/files${home}/dev/purger/src/blob.bin`, page)).headers.get('content-disposition')!, /^attachment/)
+    const script = await h.call(`/files${home}/dev/purger/src/app.js`, { headers: { 'sec-fetch-dest': 'script' } })
+    assert.equal(script.headers.get('content-type'), 'text/javascript; charset=utf-8')
+    assert.equal(await script.text(), 'go()')
+
+    // A file that can't open: a page that says why with a way back, not raw JSON; scripts still get JSON.
+    const missing = await h.call(`/files${home}/dev/purger/src/Nope.java%3A3`, page)
+    assert.equal(missing.status, 404)
+    const text = await missing.text()
+    assert.match(text, /not inside your home folder, or does not exist/)
+    assert.match(text, /<a href="\/">Back to Limeade<\/a>/)
+    assert.deepEqual(await (await h.call(`/files${home}/dev/purger/src/Nope.java`)).json(), { error: 'That file is not inside your home folder, or does not exist' })
   } finally {
     h.close()
   }

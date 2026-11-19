@@ -56,6 +56,24 @@ export function folderPath(home: string, input: unknown): string | null {
   return parts.length ? `${root}/${parts.join('/')}` : root
 }
 
+/** A source reference: a file, and the line (and column) in it a link points at. */
+export interface SourceRef {
+  path: string
+  line: number
+  column?: number
+}
+
+/**
+ * "Test.java:72" or "Test.java:72:5" as the file and its line, the way editors and compilers write
+ * them; null when the path doesn't end in one. A file whose real name ends like that is the caller's
+ * to try first.
+ */
+export function sourceRef(path: string): SourceRef | null {
+  const m = /^(.*?[^/:]):(\d{1,9})(?::(\d{1,9}))?$/.exec(path)
+  if (!m || !Number(m[2])) return null
+  return { path: m[1]!, line: Number(m[2]), ...(m[3] ? { column: Number(m[3]) } : {}) }
+}
+
 /** True when `path` is `home` or below it. */
 export function insideHome(home: string, path: string): boolean {
   const root = trimSlash(home)

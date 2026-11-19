@@ -27,6 +27,9 @@ test('a link to a file the agent made opens through the hub and shows its path (
   // Underscores and stars in a path stay as they are, not italics.
   assert.equal(md.render('[d](/x/_a_/b_c.html) _it_'), '<p><a href="/files/x/%5Fa%5F/b%5Fc.html" target="_blank" rel="noopener">d</a> <code>/x/_a_/b_c.html</code> <em>it</em></p>')
   assert.match(md.render('[x](/a"b<c.html)'), /href="\/files\/a%22b%3Cc.html".*<code>\/a&quot;b&lt;c.html<\/code>/)
+  // A source reference keeps its line; the hub opens the file at that line (issue #15).
+  assert.match(md.render('[Failure logging](/Users/me/p/Test.java:72)'), /href="\/files\/Users\/me\/p\/Test.java%3A72".*<code>\/Users\/me\/p\/Test.java:72<\/code>/)
+  assert.match(md.render('[x](/Users/me/p/My%20Test.java:72:5)'), /href="\/files\/Users\/me\/p\/My%20Test.java%3A72%3A5"/)
   // Somewhere this app can't open still shows where it pointed.
   assert.equal(md.render('[Open diagram](diagram.html)'), '<p>Open diagram <code>diagram.html</code></p>')
   assert.equal(md.plain('[Open diagram](/a/d.html)'), 'Open diagram')
