@@ -61,16 +61,23 @@
   /** A monitor whose last run is still going can't be run again now (the hub says 409 too). */
   function isRunning(m) { return !!(m && m.lastRun && m.lastRun.status === 'running') }
 
+  /** A creation time always shows its full date, e.g. "Nov 19, 2026, 5:23 PM" (never just a time). */
+  function fullDate(t) {
+    const d = new Date(t)
+    if (isNaN(d.getTime())) return String(t)
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+  }
+
   /** The Details rows: who it runs as, where, and since when. Folder and date are shown with the page's own helpers. */
   function facts(m, folder, when) {
     return [
       ['Runs as', m.agent || 'No agent'],
       m.cwd ? ['Folder', folder ? folder(m.cwd) : m.cwd] : null,
-      m.createdAt ? ['Created', when ? when(m.createdAt) : m.createdAt] : null,
+      m.createdAt ? ['Created', fullDate(m.createdAt)] : null,
     ].filter(Boolean)
   }
 
-  const api = { statusWord, dotClass, listFrom, triggerLine, nextLabel, took, runLine, isRunning, facts }
+  const api = { statusWord, dotClass, listFrom, triggerLine, nextLabel, took, runLine, isRunning, facts, fullDate }
   if (typeof window !== 'undefined') window.monitorView = api
   if (typeof module !== 'undefined') module.exports = api
 })()

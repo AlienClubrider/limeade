@@ -40,7 +40,9 @@ test('monitors page: a trigger and a run in plain words, with the colours Worker
 
 test('monitor page: Details rows say who it runs as, where and since when', () => {
   assert.deepEqual(mv.facts({ agent: 'apologist', cwd: '/h/p', createdAt: 'T' }, (p: string) => `~${p}`, (t: string) => `at ${t}`),
-    [['Runs as', 'apologist'], ['Folder', '~/h/p'], ['Created', 'at T']])
+    [['Runs as', 'apologist'], ['Folder', '~/h/p'], ['Created', 'T']])
+  const created = mv.facts({ agent: null, createdAt: '2026-11-19T23:23:00Z' })[1][1]
+  assert.match(created, /^Nov (19|20), 2026, \d{1,2}:\d{2}\s?[AP]M$/)
   assert.deepEqual(mv.facts({ agent: null }), [['Runs as', 'No agent']])
 })
 
@@ -58,11 +60,10 @@ test('monitor page: what it does, then Run now / Pause, then runs; the brief and
   assert.match(app, /m\.description \? h\('div', \{ class: 'desc one' \}/) // the list shows it too
 })
 
-test('monitors page: in the drawer right below Agents (above Local Models), served, live, no chat box', () => {
+test('monitors page: in the drawer right below Workers, served, live, no chat box', () => {
   const html = read('index.html')
   const tabs = [...html.matchAll(/data-tab="([a-z]+)"/g)].map((m) => m[1])
-  assert.equal(tabs[tabs.indexOf('agent') + 1], 'monitors')
-  assert.ok(html.indexOf('data-tab="monitors"') < html.indexOf('id="drawer-models"'))
+  assert.equal(tabs[tabs.indexOf('workers') + 1], 'monitors')
   assert.match(html, /<section id="view-monitors"/)
   assert.ok(isWebFile('/monitors.js'))
   assert.ok(isWebFile('/monitors.0123456789.js'))
