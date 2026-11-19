@@ -110,7 +110,20 @@
       .trim()
   }
 
-  const api = { settle, addPiece, split, slot, elapsed, oneLine }
+  /**
+   * The row a turn's updates fold behind. While the turn runs it is the Assistant talking, so it shows as
+   * a message (a card like its replies), saying the latest update on one line (cut to fit), or just the
+   * count once unfolded, since the updates then show whole inside it. A finished reply's updates are
+   * history above it: a plain "2 earlier updates" line.
+   */
+  function updatesRow(notes, live, open) {
+    const n = (notes || []).length
+    const count = `${n} ${live ? '' : 'earlier '}${n === 1 ? 'update' : 'updates'}`
+    const gist = live && n && !open ? oneLine(notes[n - 1].text) : null
+    return { message: !!live, gist, count: gist && n === 1 ? null : count, label: gist ? `${count}, latest: ${gist}` : count }
+  }
+
+  const api = { settle, addPiece, split, slot, elapsed, oneLine, updatesRow }
   if (typeof window !== 'undefined') window.liveTurn = api
   if (typeof module !== 'undefined') module.exports = api
 })()

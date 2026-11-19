@@ -126,3 +126,31 @@ test('live turn: a long update folds to one plain line while the turn runs (issu
   assert.equal(liveTurn.oneLine('```sh\nnpm test\n```'), 'npm test')
   assert.equal(liveTurn.oneLine(''), '')
 })
+
+test('live turn: updates stay apart from the reply (#10), fold to one line (#12), and read as the Assistant talking (#14)', async () => {
+  const { readFileSync } = await import('node:fs')
+  const text = 'Checked the two failing tests.\n\nI’ll use the **feature-verification** skill to separate what the local tests\nalready proved from what you can validate on dev.'
+  const steps = [{ tool: 'Bash', at: text.indexOf('\n\n') }, { tool: 'Bash', at: text.length }]
+  // #10: each update apart and in order, none of it in the reply.
+  const { notes, now } = liveTurn.split(text, steps)
+  assert.deepEqual(notes.map((n: { before: number }) => n.before), [0, 1])
+  assert.equal(now, '')
+  // #12: folded, the running turn's row says only its latest update, on one plain line.
+  const row = liveTurn.updatesRow(notes, true, false)
+  assert.equal(row.gist, 'I’ll use the feature-verification skill to separate what the local tests already proved from what you can validate on dev.')
+  assert.equal(row.count, '2 updates')
+  // Unfolded, the updates show whole inside it, so the row doesn't repeat the latest.
+  assert.deepEqual([liveTurn.updatesRow(notes, true, true).gist, liveTurn.updatesRow(notes, true, true).count], [null, '2 updates'])
+  // #14: while it runs that row is a message, not a status line; a finished reply's updates are history.
+  assert.equal(row.message, true)
+  assert.deepEqual(liveTurn.updatesRow(notes, false, false), { message: false, gist: null, count: '2 earlier updates', label: '2 earlier updates' })
+  const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8')
+  assert.match(app, /row\.message \? 'updates update-card' : 'updates'/)
+  assert.match(app, /row\.message \? 'gist-line' : 'status-line'/) // the "Running a command…" status-line stays outside the card
+  const css = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8')
+  const rule = (sel: string) => new RegExp(`${sel.replace(/[.-]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? ''
+  assert.match(rule('.update-card'), /background:\s*var\(--card\)/) // the same card as its replies
+  assert.match(rule('.update-card'), /border:[^;]*var\(--cardLine\)/)
+  assert.match(rule('.gist-line .gist'), /white-space:\s*nowrap/) // one line, cut to fit
+  assert.match(rule('.gist-line'), /color:\s*var\(--text\)/) // its words, not muted metadata
+})

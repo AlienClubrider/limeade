@@ -506,16 +506,12 @@ const openUpdates = new Set()
 function updatesFold(id, notes, live = false) {
   if (!notes.length) return null
   const open = openUpdates.has(id)
-  const count = `${notes.length} ${live ? '' : 'earlier '}${notes.length === 1 ? 'update' : 'updates'}`
-  // While the turn runs, the row says the latest update on one line (cut to fit) instead of a count.
-  const label = live
-    ? [h('span', { class: 'gist' }, liveTurn.oneLine(notes[notes.length - 1].text)), notes.length > 1 ? h('span', { class: 'took' }, count) : null]
-    : count
-  const box = h('div', { class: 'updates' },
+  const row = liveTurn.updatesRow(notes, live, open)
+  const box = h('div', { class: row.message ? 'updates update-card' : 'updates' },
     h('button', {
-      class: live ? 'status-line gist-line' : 'status-line', 'aria-expanded': String(open), 'aria-label': live ? `${count}, latest: ${liveTurn.oneLine(notes[notes.length - 1].text)}` : null,
+      class: row.message ? 'gist-line' : 'status-line', 'aria-expanded': String(open), 'aria-label': row.label,
       onclick: () => { open ? openUpdates.delete(id) : openUpdates.add(id); box.replaceWith(updatesFold(id, notes, live)) },
-    }, label, svg(open ? ICON.chevD : ICON.chevR)),
+    }, row.message ? [row.gist ? h('span', { class: 'gist' }, row.gist) : null, row.count ? h('span', { class: 'took' }, row.count) : null] : row.count, svg(open ? ICON.chevD : ICON.chevR)),
     open ? notes.map((n) => h('div', { class: 'md turn-note update', html: window.md.render(n.text) })) : null)
   return box
 }
