@@ -835,6 +835,8 @@ test('finished work leads with what was made, and says so when it cannot point t
   assert.match(WORKER_NOTE, /your done line says where it is: its link or full path/)
   const defaults = readFileSync(new URL('../defaults/assistant.md', import.meta.url), 'utf8')
   assert.match(defaults, /When a job made something .* put it first/)
+  // He never has to open a terminal: the Assistant runs it, or has a helper do it.
+  assert.match(defaults, /Never ask the user to run a command or open a terminal; run it yourself or have a helper do it\./)
 })
 
 test('a worker chat runs as its persona in its folder, told how to report, with its name in the environment', async () => {

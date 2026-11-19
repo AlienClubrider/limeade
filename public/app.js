@@ -62,6 +62,177 @@ document.addEventListener('click', (e) => {
   if (chip) navigator.clipboard?.writeText(chip.dataset.path).then(() => toast('Path copied'), () => toast(chip.dataset.path))
 })
 
+// ---------- file viewer ----------
+// A file link in a reply opens here, over Limeade, instead of a bare page in another tab: Markdown rendered,
+// a page previewed in a sandbox, code coloured with line numbers ("Test.java:72" lands on line 72), pictures
+// and PDFs as themselves. What decides how a file shows lives in file-view.js.
+
+const viewerRoot = document.body.appendChild(h('div', { id: 'viewer-root' }))
+const viewerNav = window.fileView.viewerNav(history, () => viewerRoot.replaceChildren())
+const narrow = matchMedia('(max-width: 1023px)')
+
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('a[href^="/files/"]')
+  if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+  if (!a.closest('.md, #viewer-root')) return
+  e.preventDefault()
+  openFile(a.getAttribute('href'))
+})
+
+/** The viewer's libraries (public/vendor), loaded the first time a file needs them. */
+const vendorLoads = {}
+function vendor(name) {
+  return (vendorLoads[name] ??= new Promise((ok, fail) => {
+    document.head.append(h('script', { src: `/vendor/${name}.js`, onload: ok, onerror: () => { delete vendorLoads[name]; fail(new Error('Could not load the viewer. Check your connection and try again.')) } }))
+  }))
+}
+
+let viewerSeq = 0
+async function openFile(url) {
+  const fv = window.fileView
+  const seq = ++viewerSeq
+  const asked = fv.pathOf(url)
+  const ref = fv.parseRef(asked)
+  // A "path:72" that isn't itself a file is the file at line 72 (the hub sends it on to the file).
+  let path = asked
+  let line = null
+  let fileUrl = url.split('#')[0]
+  const name = () => (path.split('/').at(-1) || path) + (line ? `:${line}` : '')
+
+  const body = h('div', { class: 'viewer-body' }, h('div', { class: 'viewer-note' }, 'Opening…'))
+  const tools = h('div', { class: 'viewer-tools', hidden: true })
+  const title = h('h1', {}, name())
+  const sub = h('div', { class: 'sub', title: asked }, h('bdi', {}, asked)) // cut on the left: the file's end shows
+  const more = h('button', { class: 'hbtn', 'aria-label': 'File actions', 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); toggleMenu() } }, svg(ICON.more))
+  const menu = h('div', { class: 'viewer-menu', role: 'menu', hidden: true },
+    h('button', { role: 'menuitem', onclick: () => { hideMenu(); navigator.clipboard?.writeText(path).then(() => toast('Path copied'), () => toast(path)) } }, svg(ICON.copy), 'Copy path'),
+    h('button', { role: 'menuitem', onclick: () => { hideMenu(); download() } }, svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'), 'Download'),
+    h('button', { role: 'menuitem', onclick: () => { hideMenu(); window.open(fileUrl + (line ? `#L${line}` : ''), '_blank', 'noopener') } }, svg('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'), 'Open in new tab'))
+  const hideMenu = () => { menu.hidden = true }
+  const toggleMenu = () => { menu.hidden = !menu.hidden }
+  const download = () => h('a', { href: fileUrl, download: path.split('/').at(-1) || 'file' }).click()
+  const view = h('div', { class: 'viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': name(), onclick: (e) => { if (!menu.contains(e.target)) hideMenu() } },
+    h('div', { class: 'viewer-bar' },
+      h('button', { class: 'back', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => viewerNav.close() }, svg(narrow.matches ? ICON.back : ICON.close)),
+      h('div', { class: 'titles' }, title, sub),
+      more, menu),
+    tools, body)
+  viewerRoot.replaceChildren(h('div', { class: 'scrim viewer-scrim', onclick: () => viewerNav.close() }), view)
+  viewerNav.opened()
+
+  const stale = () => seq !== viewerSeq || !viewerNav.open
+  const show = (...kids) => { if (!stale()) put(body, ...kids) }
+  const cannot = (why, offerDownload = true) => show(h('div', { class: 'viewer-note' },
+    h('h2', {}, "Can't preview this file"), h('p', {}, why),
+    offerDownload ? h('button', { class: 'btn ghost', onclick: download }, 'Download') : null))
+
+  try {
+    // Pictures and PDFs load as themselves; everything else is read here.
+    const kind = fv.kindOf(ref.line ? ref.path : asked)
+    if (kind === 'image' || kind === 'pdf') {
+      if (ref.line) { path = ref.path; fileUrl = fileHref(path) }
+      title.textContent = name()
+      const el = kind === 'image'
+        ? h('img', { class: 'viewer-img', src: fileUrl, alt: name(), onerror: () => cannot('That file is not inside your home folder, or does not exist', false) })
+        : h('iframe', { class: 'viewer-frame', src: fileUrl, title: name() })
+      return show(h('div', { class: `viewer-${kind}` }, el))
+    }
+    const r = await fetch(url, { credentials: 'same-origin' })
+    if (!r.ok) {
+      const why = await r.json().then((j) => j.error, () => null)
+      return cannot(why || `The hub answered ${r.status}`, false)
+    }
+    if (r.redirected && ref.line) { path = ref.path; line = ref.line; fileUrl = new URL(r.url).pathname }
+    title.textContent = name()
+    sub.title = sub.firstChild.textContent = path
+    if (+r.headers.get('content-length') > fv.LIMITS.PREVIEW_BYTES) return cannot('It is too big to show here.')
+    const bytes = new Uint8Array(await r.arrayBuffer())
+    if (stale()) return
+    if (!fv.isText(bytes)) return cannot('It is not a text file, a picture or a PDF.')
+    const text = new TextDecoder().decode(bytes)
+    const fileKind = fv.kindOf(path)
+    const lang = fv.languageOf(path)
+    let wrap = localStorage.getItem('viewer-wrap') !== 'off'
+    const code = () => codeView(text, lang, line, wrap)
+    if (fileKind !== 'markdown' && fileKind !== 'html') {
+      const toggle = h('button', { class: 'chip', 'aria-pressed': String(wrap), onclick: async () => {
+        wrap = !wrap
+        localStorage.setItem('viewer-wrap', wrap ? 'on' : 'off')
+        toggle.setAttribute('aria-pressed', String(wrap))
+        body.querySelector('.code')?.classList.toggle('wrap', wrap)
+        body.querySelector('.code .hit')?.scrollIntoView({ block: 'center' }) // the linked line stays in view
+      } }, 'Wrap lines')
+      put(tools, toggle)
+      tools.hidden = false
+      return show(await code())
+    }
+    // Markdown and pages: the rendered view, or their source (where a line link lands).
+    const preview = () => fileKind === 'markdown' ? markdownView(text, fileUrl) : Promise.resolve(h('iframe', { class: 'viewer-frame page', src: fileUrl, title: name(), sandbox: 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads' }))
+    const modes = [['preview', 'Preview', preview], ['source', 'Source', code]]
+    const pick = async (mode) => {
+      for (const b of tools.children) b.setAttribute('aria-pressed', String(b.dataset.mode === mode))
+      body.scrollTop = 0
+      show(await modes.find((m) => m[0] === mode)[2]())
+    }
+    put(tools, modes.map(([mode, label]) => h('button', { class: 'chip', 'data-mode': mode, onclick: () => pick(mode) }, label)))
+    tools.hidden = false
+    await pick(line ? 'source' : 'preview')
+  } catch (err) {
+    cannot(err.message || 'Something went wrong opening it.', false)
+  }
+
+  /** Numbered lines, coloured when the language is known and the file isn't huge; the linked line marked. */
+  async function codeView(text, lang, at, wrapOn) {
+    const fv = window.fileView
+    let lines
+    if (lang && text.length <= fv.LIMITS.HIGHLIGHT_BYTES) {
+      await vendor('highlight')
+      lines = fv.splitLines(window.hljs.highlight(text, { language: lang, ignoreIllegals: true }).value)
+    } else lines = text.split('\n').map(window.md.esc)
+    if (lines.length > 1 && lines.at(-1) === '') lines.pop()
+    const rows = (from, to) => lines.slice(from, to).map((l, i) => `<div class="l${from + i + 1 === at ? ' hit' : ''}" id="L${from + i + 1}"><span class="n">${from + i + 1}</span><span class="t">${l || ' '}</span></div>`).join('')
+    const shown = Math.max(fv.LIMITS.SHOW_LINES, (at || 0) + 200)
+    const el = h('div', { class: `code${wrapOn ? ' wrap' : ''}`, style: `--digits:${String(lines.length).length}ch`, html: rows(0, shown) })
+    const out = h('div', {}, el)
+    if (lines.length > shown) {
+      const rest = h('button', { class: 'btn viewer-more', onclick: () => { el.insertAdjacentHTML('beforeend', rows(shown)); rest.remove() } }, `Show all ${lines.length.toLocaleString()} lines`)
+      out.append(rest)
+    }
+    if (at) requestAnimationFrame(() => el.querySelector('.hit')?.scrollIntoView({ block: 'center' }))
+    return out
+  }
+}
+
+/** A Markdown file rendered (and cleaned), its pictures and links resolved next to it, its code blocks coloured. */
+async function markdownView(text, fileUrl) {
+  const fv = window.fileView
+  await Promise.all([vendor('marked'), vendor('purify'), vendor('highlight')])
+  const html = window.DOMPurify.sanitize(window.marked.parse(text, { gfm: true }), { FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select'], FORBID_ATTR: ['style'] })
+  const doc = h('div', { class: 'md doc', html })
+  for (const img of doc.querySelectorAll('img')) {
+    const src = fv.resolve(fileUrl, img.getAttribute('src'))
+    if (src && !src.startsWith('#') && !src.startsWith('mailto:')) img.setAttribute('src', src)
+    else img.remove()
+  }
+  for (const a of doc.querySelectorAll('a[href]')) {
+    const href = fv.resolve(fileUrl, a.getAttribute('href'))
+    if (!href) { a.replaceWith(...a.childNodes); continue }
+    a.setAttribute('href', href)
+    if (/^(https?|mailto):/i.test(href)) { a.target = '_blank'; a.rel = 'noopener' }
+    else if (href.startsWith('#')) a.onclick = (e) => { e.preventDefault(); doc.querySelector(`[id="fv-${CSS.escape(fv.slug(decodeURIComponent(href.slice(1))))}"]`)?.scrollIntoView({ block: 'start' }) }
+  }
+  for (const hd of doc.querySelectorAll('h1, h2, h3, h4, h5, h6')) hd.id = 'fv-' + fv.slug(hd.textContent)
+  for (const c of doc.querySelectorAll('pre code')) {
+    const lang = /language-([\w+-]+)/.exec(c.className)?.[1]
+    if (lang && window.hljs.getLanguage(lang)) window.hljs.highlightElement(c)
+  }
+  for (const input of doc.querySelectorAll('input')) input.disabled = true
+  return doc
+}
+
+/** Where the hub serves a path (each part encoded), as md.js links it. */
+const fileHref = (path) => '/files' + (path.startsWith('~') ? '/' : '') + path.split('/').map(encodeURIComponent).join('/')
+
 // ---------- hub API ----------
 
 class HubError extends Error {
@@ -1147,6 +1318,7 @@ function panelClosed() {
 let drawerClosing = false
 let sheetClosing = false
 window.addEventListener('popstate', () => {
+  if (viewerNav.popped()) return // the file viewer was on top: Back closed it, nothing under it
   if (drawerClosing) { drawerClosing = false; return } // our own step back after closing the drawer
   if (sheetClosing) { sheetClosing = false; return } // likewise after closing a sheet
   if (!drawerRoot.hidden) { drawerRoot.hidden = true; $('#menu').setAttribute('aria-expanded', 'false'); return }
@@ -1157,6 +1329,7 @@ window.addEventListener('popstate', () => {
 })
 // Wide: Esc closes a sheet or dialog, else the side panel (not while typing in it).
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && viewerNav.open) return viewerNav.close()
   if (e.key !== 'Escape' || !wide.matches || !drawerRoot.hidden) return
   const root = $('#sheet-root')
   if (root.children.length) { if (history.state?.sheet) history.back(); else root.replaceChildren(); return }

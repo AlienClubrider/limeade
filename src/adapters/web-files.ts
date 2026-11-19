@@ -17,9 +17,9 @@ const MIME: Record<string, string> = {
   '.ttf': 'font/ttf',
 }
 
-const ASSET = /^\/(app\.js|md\.js|clip\.js|list-width\.js|live-turn\.js|follow\.js|on-screen\.js|composer-draft\.js|monitors\.js|styles\.css|sw\.js|manifest\.webmanifest|icons\/[a-z0-9-]+\.png|fonts\/[A-Za-z0-9-]+\.(?:woff2|ttf))$/
+const ASSET = /^\/(app\.js|md\.js|clip\.js|list-width\.js|live-turn\.js|follow\.js|on-screen\.js|composer-draft\.js|monitors\.js|file-view\.js|styles\.css|vendor\/(?:marked|purify|highlight)\.js|sw\.js|manifest\.webmanifest|icons\/[a-z0-9-]+\.png|fonts\/[A-Za-z0-9-]+\.(?:woff2|ttf))$/
 /** "/app.3f9c1e2ab4.js": a script or stylesheet named by a hash of its content. */
-const HASHED = /^\/(app|md|clip|list-width|live-turn|follow|on-screen|composer-draft|monitors|styles)\.[0-9a-f]{10}\.(js|css)$/
+const HASHED = /^\/(app|md|clip|list-width|live-turn|follow|on-screen|composer-draft|monitors|file-view|styles)\.[0-9a-f]{10}\.(js|css)$/
 
 export function isWebFile(path: string): boolean {
   return path === '/' || path === '/index.html' || ASSET.test(path) || HASHED.test(path)
@@ -52,7 +52,7 @@ export async function sendWebFile(res: ServerResponse, dir: string, path: string
  */
 async function sendShell(res: ServerResponse, dir: string) {
   let html = await fs.readFile(join(dir, 'index.html'), 'utf8')
-  for (const name of ['app.js', 'md.js', 'clip.js', 'list-width.js', 'live-turn.js', 'follow.js', 'on-screen.js', 'composer-draft.js', 'monitors.js', 'styles.css', 'sw.js']) {
+  for (const name of ['app.js', 'md.js', 'clip.js', 'list-width.js', 'live-turn.js', 'follow.js', 'on-screen.js', 'composer-draft.js', 'monitors.js', 'file-view.js', 'styles.css', 'sw.js']) {
     const data = await fs.readFile(join(dir, name)).catch(() => null)
     if (!data) continue
     const tag = createHash('sha256').update(data).digest('hex').slice(0, 10)
