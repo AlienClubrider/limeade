@@ -461,7 +461,7 @@ a.cardrow { color: inherit; text-decoration: none }
 .section.flush { padding: 22px 0 8px }
 .monitor-acts { display: flex; gap: 12px; margin-top: 16px }
 .monitor-page .pagebody > .monitor-acts:first-child { margin-top: 0 }
-.monitor-details { margin-top: 26px; border-top: 1px solid var(--line) }
+.monitor-details { margin-top: 22px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line) }
 .monitor-details > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 16px 2px; color: var(--muted); font-size: 15px; font-weight: 600; cursor: pointer; user-select: none }
 .monitor-details > summary::-webkit-details-marker { display: none }
 .monitor-details > summary span { color: var(--faint); transition: transform .15s }

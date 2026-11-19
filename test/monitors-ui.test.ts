@@ -46,10 +46,10 @@ test('monitor page: Details rows say who it runs as, where and since when', () =
   assert.deepEqual(mv.facts({ agent: null }), [['Runs as', 'No agent']])
 })
 
-test('monitor page: what it does, then Run now / Pause, then runs; the brief and Delete wait in a closed Details', () => {
+test('monitor page: what it does, then Run now / Pause, then a closed Details (brief and Delete), then runs', () => {
   const app = read('app.js')
   const page = app.slice(app.indexOf('function openMonitor('), app.indexOf('function runRow('))
-  const order = ["m.description ? h('div', { class: 'desc' }", "'monitor-acts'", "'Runs')", 'details,\n']
+  const order = ["m.description ? h('div', { class: 'desc' }", "'monitor-acts'", 'details,\n', "'Runs')"]
   const at = order.map((s) => page.indexOf(s))
   assert.ok(at.every((i) => i > 0), `missing: ${order.filter((_, i) => at[i] < 0)}`)
   assert.deepEqual([...at].sort((a, b) => a - b), at)

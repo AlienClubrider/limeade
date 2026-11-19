@@ -1849,11 +1849,11 @@ function openMonitor(summary, fromList = false) {
         h('div', { class: 'monitor-acts' },
           h('button', { class: 'btn primary', disabled: running || acting, onclick: runNow }, running ? 'Running…' : 'Run now'),
           h('button', { class: 'btn ghost', disabled: acting, onclick: toggle }, m.enabled ? 'Pause' : 'Resume')),
+        details,
         h('div', { class: 'section flush' }, 'Runs'),
         m.runs?.length
           ? h('div', { class: 'card runs' }, m.runs.map((r) => runRow(m, r)))
           : h('div', { class: 'meta' }, m.enabled ? `No runs yet. ${MV.nextLabel(m)}.` : 'No runs yet.'),
-        details,
       )
     }
 
