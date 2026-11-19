@@ -14,6 +14,12 @@ test('composer: plain Enter sends on a computer; Shift+Enter is a new line', () 
   assert.equal(draft.sendsOnEnter(key('a'), true), false)
 })
 
+test('composer: the Enter that picks a word in an input method never sends', () => {
+  assert.equal(draft.sendsOnEnter({ key: 'Enter', shiftKey: false, isComposing: true }, true), false)
+  assert.equal(draft.sendsOnEnter({ key: 'Enter', shiftKey: false, isComposing: false, keyCode: 229 }, true), false) // Safari
+  assert.equal(draft.sendsOnEnter({ key: 'Enter', shiftKey: false, isComposing: false, keyCode: 13 }, true), true)
+})
+
 test('composer: Enter on a phone is a new line (the arrow sends)', () => {
   assert.equal(draft.sendsOnEnter(key('Enter'), false), false)
 })

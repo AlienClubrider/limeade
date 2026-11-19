@@ -2,8 +2,12 @@
 // sent leaves the box as it goes, so a second Enter can't send it again; a failed send puts it back.
 'use strict'
 ;(function () {
-  /** Whether a keydown in the box sends: plain Enter, on a computer (phones send with the arrow). */
-  const sendsOnEnter = (e, computer) => computer && e.key === 'Enter' && !e.shiftKey
+  /**
+   * Whether a keydown in the box sends: plain Enter, on a computer (phones send with the arrow). Not the
+   * Enter that picks a word in an input method (Japanese, Chinese…): Safari reports that one with
+   * isComposing already false, but keyCode 229.
+   */
+  const sendsOnEnter = (e, computer) => computer && e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229
 
   /** The box after a send failed: the text sent back in front of anything typed while it was going. */
   function afterFailedSend(sent, typed) {
