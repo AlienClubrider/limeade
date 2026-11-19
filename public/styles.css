@@ -299,6 +299,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .row-item .s.one { -webkit-line-clamp: 1 }
 .row-item .now { font-size: 14px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .row-item .now.quiet { color: var(--faint) }
+.row-item .now .agent { color: var(--faint) }
 .state-dot.pulse { animation: pulse 1.6s ease-in-out infinite }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(111,155,255,.45) } 50% { box-shadow: 0 0 0 5px rgba(111,155,255,0) } }
 

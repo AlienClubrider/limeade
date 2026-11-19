@@ -39,6 +39,8 @@ export interface WorkerSummary {
   activity?: string | null
   /** When it last did anything (ISO): its newest transcript write or report, whichever is later. */
   activeAt?: string | null
+  /** The agent it runs as ("developer"), or null for a plain session. */
+  agent?: string | null
 }
 
 export interface WorkerDetail extends WorkerSummary {
@@ -57,6 +59,12 @@ export function parseRegistry(text: string): Registered[] {
     if (f.length < 6 || !f[5]) return []
     return [{ uuid: f[0]!, remoteId: f[1]!, agent: f[2]!, title: f[3]!, dir: f[4]!, slug: f[5]! }]
   })
+}
+
+/** The agent a worker runs as, or null when it runs as none ("-" or empty in the records). */
+export function agentOf(raw: string | null | undefined): string | null {
+  const a = raw?.trim() ?? ''
+  return a && a !== '-' ? a : null
 }
 
 /** "<UTC time> <state>: <text>" lines, oldest first. */

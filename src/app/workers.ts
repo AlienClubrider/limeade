@@ -4,7 +4,7 @@
 // needs the Assistant into fleet events, the same lines fleet-watch writes on a server with the scripts.
 
 import { CLAUDE_MODELS, CODEX_MODELS, localLabel, parseModelId } from '../domain/models.ts'
-import { jobFor, latestOf, sortWorkers, type StatusLine, type WorkerDetail, type WorkerState, type WorkerSummary } from '../domain/workers.ts'
+import { agentOf, jobFor, latestOf, sortWorkers, type StatusLine, type WorkerDetail, type WorkerState, type WorkerSummary } from '../domain/workers.ts'
 import { workerSlug } from '../domain/fleet.ts'
 import type { Chat } from '../domain/chat.ts'
 import type { FleetRecords, WorkerSource } from '../ports.ts'
@@ -151,6 +151,7 @@ export class HubWorkers implements WorkerSource {
       job: jobFor(backlog, chat.title) ?? jobFor(backlog, chat.worker!.slug),
       activity: state === 'working' ? chat.live?.steps.at(-1)?.label ?? 'Working' : null,
       activeAt: latestOf(chat.updatedAt, last?.at),
+      agent: agentOf(chat.worker!.persona),
       lines,
     }
   }

@@ -100,7 +100,7 @@ test('a worker reports done with fleet status; the Assistant is woken with the e
     const wake = t.calls.at(-1)!
     assert.match(wake.prompt, /\[fleet event\] Fleet events \(handle each, then fleet ack\):\n1 .* dark-theme reported: done/)
     const listed = await t.workers.list()
-    assert.deepEqual(listed.map((x) => [x.id, x.state, x.now]), [['dark-theme', 'done', 'dark theme added, tests pass']])
+    assert.deepEqual(listed.map((x) => [x.id, x.state, x.now, x.agent]), [['dark-theme', 'done', 'dark theme added, tests pass', 'developer']])
     // Seen once: the next look adds nothing.
     await t.workers.watch()
     assert.equal(readFileSync(join(t.dir, 'events.log'), 'utf8').trim().split('\n').length, 1)
@@ -116,6 +116,7 @@ test('a worker turn that ends without a report, or fails, is an event too; a sto
     const w = await t.workers.start({ persona: '-', title: 'Quiet one', folder: '/h/dev', brief: 'go' })
     await idle(t.c, w.chatId)
     await settle()
+    assert.equal((await t.workers.list())[0]!.agent, null) // a plain session names no agent
     fail = true
     await t.workers.send('quiet-one', 'try again')
     await idle(t.c, w.chatId)

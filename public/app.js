@@ -1515,9 +1515,10 @@ function workerRow(w) {
       h('div', { class: 'line1' }, h('span', { class: 't' }, w.title), w.at ? h('span', { class: 'ago' }, ago(w.at)) : null),
       w.job ? h('div', { class: 's one' }, w.job) : null,
       // Right now: its latest step while it works (live); otherwise its last report, quietly.
+      // The agent it runs as leads the line, quietly ("developer · …"); plain sessions show none.
       working
-        ? h('div', { class: 'now' }, h('span', { class: 'shimmer' }, `${w.activity || 'Working'}…`))
-        : h('div', { class: 'now quiet' }, w.state === 'needs' ? `Needs you · ${w.now}` : w.now)))
+        ? h('div', { class: 'now' }, w.agent ? h('span', { class: 'agent' }, `${w.agent} · `) : null, h('span', { class: 'shimmer' }, `${w.activity || 'Working'}…`))
+        : h('div', { class: 'now quiet' }, [w.agent, w.state === 'needs' ? 'Needs you' : null, w.now].filter(Boolean).join(' · '))))
 }
 
 function openWorker(summary, fromList = false) {

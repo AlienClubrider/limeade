@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isActive, jobFor, latestActivity, latestOf, paneStateFrom, parseRegistry, parseStatus, sortWorkers, stateWords, transcriptPath, workerState } from '../src/domain/workers.ts'
+import { agentOf, isActive, jobFor, latestActivity, latestOf, paneStateFrom, parseRegistry, parseStatus, sortWorkers, stateWords, transcriptPath, workerState } from '../src/domain/workers.ts'
 
 test('registry and status lines parse', () => {
   const reg = parseRegistry('u1\tsession_1\tdeveloper\tNotes app · fixes\t/home/h/dev/notes-app\tcc-notes-app-fixes\n\nbad line\n')
@@ -8,6 +8,14 @@ test('registry and status lines parse', () => {
   const lines = parseStatus('2026-11-13T12:45:16Z working: Deploying\n2026-11-13T12:45:46Z done: Live: v2\njunk')
   assert.deepEqual(lines.map((l) => l.state), ['working', 'done'])
   assert.equal(lines[1]!.text, 'Live: v2')
+})
+
+test('a worker runs as an agent only when the records name one', () => {
+  assert.equal(agentOf('developer'), 'developer')
+  assert.equal(agentOf(' general '), 'general')
+  assert.equal(agentOf('-'), null)
+  assert.equal(agentOf(''), null)
+  assert.equal(agentOf(undefined), null)
 })
 
 test('job comes from the newest backlog row for that worker', () => {

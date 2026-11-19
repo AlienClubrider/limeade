@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { claudeLabel } from '../domain/models.ts'
 import {
-  isActive, jobFor, latestActivity, latestOf, paneStateFrom, parseRegistry, parseStatus, sortWorkers, transcriptPath, workerState,
+  agentOf, isActive, jobFor, latestActivity, latestOf, paneStateFrom, parseRegistry, parseStatus, sortWorkers, transcriptPath, workerState,
   type Registered, type WorkerDetail, type WorkerSummary,
 } from '../domain/workers.ts'
 import type { WorkerSource } from '../ports.ts'
@@ -77,6 +77,7 @@ export class FleetWorkers implements WorkerSource {
       job: jobFor(backlog, r.title),
       activity,
       activeAt: latestOf(await this.transcriptAt(r), last?.at),
+      agent: agentOf(r.agent),
       active: isActive(pane),
       lines,
     }
