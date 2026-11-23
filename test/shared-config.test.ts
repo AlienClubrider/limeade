@@ -12,6 +12,7 @@ import { Bin, ClaudeShelf, CodexShelf } from '../src/adapters/agent-shelves.ts'
 import { KeyFile } from '../src/adapters/agent-keys.ts'
 import { McpKeys } from '../src/adapters/mcp-keys.ts'
 import { SharedConfig } from '../src/app/shared-config.ts'
+import { KEPT_UP_TO_DATE, launcherScript, renderSkill, shellWord, shouldWriteSkill } from '../src/domain/bundled-skills.ts'
 import { onPath } from '../src/adapters/acp-turns.ts'
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'sc3b-test-'))
@@ -337,4 +338,46 @@ test('the default Assistant is generic: nothing about one person, box or homelab
   const p = personaFromMarkdown('assistant', text)
   assert.equal(p.name, 'assistant')
   assert.ok(p.description && p.instructions.length < 4000)
+})
+
+test('a bundled skill is added to both agents, kept up to date, and left alone once the user makes it theirs', async () => {
+  const shipped = renderSkill(readFileSync(new URL('../defaults/skills/limeade-monitors/SKILL.md', import.meta.url), 'utf8'), '~/.config/limeade/bin/limeade')
+  const home = fakeHome()
+  const { sc } = await both(home, join(home, 'no-codex'))
+  assert.equal(await sc.installSkill('limeade-monitors', shipped), true)
+  const shared = join(home, '.agents/skills/limeade-monitors/SKILL.md')
+  assert.equal(readFileSync(shared, 'utf8'), shipped)
+  assert.equal(readFileSync(join(home, '.claude/skills/limeade-monitors/SKILL.md'), 'utf8'), shipped)
+  // Same again: nothing written.
+  assert.equal(await sc.installSkill('limeade-monitors', shipped), false)
+  // A newer Limeade: brought up to date.
+  const newer = shipped.replace('# Limeade monitors', '# Limeade monitors (newer)')
+  assert.equal(await sc.installSkill('limeade-monitors', newer), true)
+  assert.equal(readFileSync(shared, 'utf8'), newer)
+  // The user's own version (Limeade's line taken out): never replaced.
+  const mine = newer.replace(/^<!-- Limeade keeps.*\n/m, '') + '\nMy note.\n'
+  writeFileSync(shared, mine)
+  assert.equal(await sc.installSkill('limeade-monitors', shipped), false)
+  assert.equal(readFileSync(shared, 'utf8'), mine)
+})
+
+test('the bundled skills are generic and fill in the command', () => {
+  const dir = new URL('../defaults/skills/', import.meta.url)
+  for (const id of readdirSync(dir)) {
+    const text = readFileSync(new URL(`${id}/SKILL.md`, dir), 'utf8')
+    assert.doesNotMatch(text, /homelab|\d+\.\d+\.\d+\.\d+|\.com\b|\/home\/|\/Users\//i)
+    const fm = frontmatter(text)
+    assert.equal(fm.name, id)
+    assert.ok(fm.description && text.includes(KEPT_UP_TO_DATE))
+    assert.doesNotMatch(renderSkill(text, 'L'), /\{\{/)
+  }
+})
+
+test('the launcher runs this install’s CLI with its hub, and quotes paths with spaces', () => {
+  const s = launcherScript({ node: '/opt/node/bin/node', cli: '/My Apps/limeade/bin/limeade.mjs', hub: 'http://127.0.0.1:8797', configDir: '/h/.config/limeade' })
+  assert.match(s, /^#!\/bin\/sh\n/)
+  assert.match(s, /LIMEADE_HUB=http:\/\/127\.0\.0\.1:8797 LIMEADE_CONFIG=\/h\/\.config\/limeade/)
+  assert.match(s, /exec \/opt\/node\/bin\/node '\/My Apps\/limeade\/bin\/limeade\.mjs' "\$@"/)
+  assert.equal(shellWord("it's"), `'it'\\''s'`)
+  assert.ok(shouldWriteSkill(null, 'x'))
 })

@@ -12,7 +12,8 @@ browser.
 - **Workers**: agent sessions the Assistant starts, each in its own folder. They report back
   (`fleet status …`), and the Assistant hears when one is done, stuck or needs you.
 - **Monitors**: recurring jobs that run on their own, on a schedule or when a check changes. Ask the
-  Assistant for one; the Monitors page shows each one's runs and their logs.
+  Assistant for one; the Monitors page shows each one's runs and their logs. Claude Code and Codex get a
+  `limeade-monitors` skill (kept up to date by Limeade), so they know how to set one up even outside Limeade.
 - **Chat**: your own chats with any model, each in a folder you pick.
 - **Notifications**: Web Push to this computer's browser (and your phone, if you set that up). Approvals
   can be answered from the notification.

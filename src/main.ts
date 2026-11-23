@@ -1,7 +1,7 @@
 // Wires the hub together from environment settings and starts it.
 
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { homedir, totalmem } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -39,6 +39,7 @@ import { SharedConfig } from './app/shared-config.ts'
 import { ASSISTANT_ID } from './domain/chat.ts'
 import { DEFAULT_ASSISTANT_MODEL } from './domain/models.ts'
 import { displayFolder } from './domain/places.ts'
+import { launcherScript, renderSkill, shellWord } from './domain/bundled-skills.ts'
 import type { OllamaMachine } from './domain/local-models.ts'
 import { OllamaDirect } from './adapters/ollama-direct.ts'
 import { HubWorkers } from './app/workers.ts'
@@ -222,6 +223,7 @@ const agents = new Agents({
   installed: (agent) => {
     if (agent === 'codex') quietCodex(cfg.codexHome ?? join(home, '.codex'))
     defaultAssistant()
+    bundledSkills()
   },
 })
 await agents.load()
@@ -262,6 +264,25 @@ function defaultAssistant() {
     .catch((err) => console.error(`default Assistant: ${(err as Error).message}`))
 }
 defaultAssistant()
+
+// This install's `limeade` command (a launcher with its paths and hub filled in), and the skills that
+// ship with Limeade (defaults/skills), which tell any agent how to use it. Written on every start, so an
+// update brings them up to date; a skill the user changed (and took Limeade's line out of) is kept.
+const launcher = join(configDir, 'bin', 'limeade')
+mkdirSync(join(configDir, 'bin'), { recursive: true, mode: 0o700 })
+writeFileSync(launcher, launcherScript({ node: process.execPath, cli: join(appDir, 'bin', 'limeade.mjs'), hub: `http://127.0.0.1:${port}`, configDir }), { mode: 0o755 })
+chmodSync(launcher, 0o755)
+const launcherWord = /\s/.test(launcher) ? shellWord(launcher) : displayFolder(home, launcher)
+function bundledSkills() {
+  const dir = new URL('../defaults/skills/', import.meta.url)
+  for (const id of readdirSync(dir)) {
+    const text = renderSkill(readFileSync(new URL(`${id}/SKILL.md`, dir), 'utf8'), launcherWord)
+    void shared.installSkill(id, text)
+      .then((wrote) => wrote && console.log(`skill ${id} added or brought up to date`))
+      .catch((err) => console.error(`skill ${id}: ${(err as Error).message}`))
+  }
+}
+bundledSkills()
 
 const localTurns = new LocalTurns({ withTools: localWithTools, chatOnly: localModels, usesTools: (m) => localModels.usesTools(m), gate: litellmGate })
 const conversations = new Conversations({

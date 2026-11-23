@@ -7,6 +7,7 @@ import {
   SIDES, codexCannot, maskLiterals, unmaskLiterals, describeMcp, frontmatter, keysUsed, liftKeys, pairUp, personaFromMarkdown, personaMarkdown, sameMcp, samePersona,
   sideName, stepFor, validId, whoHas, type Found, type Kind, type McpServer, type Pair, type Side, type Step,
 } from '../domain/shared-config.ts'
+import { KEPT_UP_TO_DATE, shouldWriteSkill } from '../domain/bundled-skills.ts'
 import type { AgentShelf, FoundAgent, FoundSkill, KeyStore } from '../ports.ts'
 
 export interface ListItem {
@@ -242,6 +243,21 @@ export class SharedConfig {
       wrote.push(side)
     }
     return wrote
+  }
+
+  /**
+   * A skill that ships with Limeade, for both agents: added when neither has it, and brought up to date
+   * while it's still Limeade's own copy (see shouldWriteSkill). Returns whether it was written.
+   */
+  async installSkill(id: string, markdown: string): Promise<boolean> {
+    if (!SIDES.some((s) => this.shelves[s].installed())) return false
+    const p = (await this.skillPairs()).find((x) => x.id === id)
+    const copies = p ? await Promise.all(SIDES.filter((s) => p[s]).map((s) => this.shelves[s].readSkill(id))) : []
+    // A copy that's Limeade's own and out of date, or Limeade's own copy that only one agent has yet.
+    const write = !p || copies.some((c) => shouldWriteSkill(c, markdown)) || (copies.length === 1 && copies[0]!.includes(KEPT_UP_TO_DATE))
+    if (!write) return false
+    await this.save('skill', id, markdown, false)
+    return true
   }
 
   // ---------- mirroring ----------
