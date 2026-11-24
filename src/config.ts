@@ -83,7 +83,7 @@ export function hubConfig(env: Env, home: string, appDir: string): HubConfig {
     agentsPrefix,
     claudeBin: env.CLAUDE_BIN || 'claude',
     claudeTokenFile: path(env.CLAUDE_TOKEN_FILE, join(configDir, 'claude-token.env')),
-    claudeCheckMs: Number(env.CLAUDE_CHECK_MS ?? 30 * 60_000),
+    claudeCheckMs: Number(env.CLAUDE_CHECK_MS ?? 6 * 60 * 60_000),
     codexBin: env.CODEX_BIN || 'codex',
     codexHome: env.CODEX_HOME ? expandHome(env.CODEX_HOME, home) : null,
     turnTimeoutMs: Number(env.TURN_TIMEOUT_MS || 30 * 60_000),

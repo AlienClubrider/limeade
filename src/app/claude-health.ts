@@ -77,8 +77,8 @@ export class ClaudeHealth extends EventEmitter {
     }
   }
 
-  /** Checks now, and every `everyMs` after (default 30 minutes). */
-  start(everyMs = 30 * 60_000): void {
+  /** Checks now, and every `everyMs` after (default 6 hours). */
+  start(everyMs = 6 * 60 * 60_000): void {
     void this.check()
     this.timer ??= setInterval(() => void this.check(), everyMs)
     this.timer.unref?.()

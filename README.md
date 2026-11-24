@@ -111,7 +111,7 @@ limeade monitor edit <id> … | pause <id> | resume <id> | run <id> | rm <id>
 ## Claude sign-in
 
 Everything that runs Claude Code as you shares one sign-in, and when it stops working (the CLI can't
-refresh it), chats, workers and monitors all stop with it. Limeade checks it every 30 minutes with a one-word
+refresh it), chats, workers and monitors all stop with it. Limeade checks it every 6 hours with a one-word
 call, and notices at once when a chat or monitor fails on it. Then you get **one** notification, "Claude
 needs you to sign in again". Tapping it opens Settings › Agents › Claude Code: sign in with the link, paste
 the code back, and you're done. Afterwards the monitor runs that failed on it run again, and the Assistant is
@@ -163,7 +163,7 @@ The `limeade` command is linked into `~/.local/bin`. If that isn't on your `PATH
 | `TRUSTED_HOSTS` | none | Other names the page is reached by (`limeade phone`) |
 | `MACHINE_NAME` | `This computer` | How this computer is named in the app |
 | `CLAUDE_TOKEN_FILE` | `~/.config/limeade/claude-token.env` | Claude's background token (see Claude sign-in) |
-| `CLAUDE_CHECK_MS` | `1800000` | How often Claude's sign-in is checked; `0` turns the check off |
+| `CLAUDE_CHECK_MS` | `21600000` | How often Claude's sign-in is checked; `0` turns the check off |
 
 Anything else in the file (an agent's API key, a custom provider's key) reaches the agents too. A value set in
 `limeade.env` wins over the same name in the environment the service or shell started with.
