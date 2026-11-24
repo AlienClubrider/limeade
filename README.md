@@ -26,7 +26,7 @@ browser.
 You need **Node.js 24 or newer** ([nodejs.org](https://nodejs.org); `node -v` to check). Then, in Terminal:
 
 ```
-npx -y github:AlienClubrider/limeade
+npx -y github:<owner>/limeade
 ```
 
 That's all. It:
@@ -108,6 +108,25 @@ limeade monitor add "<name>" --check "<command>" [--every "10 min"] (--text … 
 limeade monitor edit <id> … | pause <id> | resume <id> | run <id> | rm <id>
 ```
 
+## Claude sign-in
+
+Everything that runs Claude Code as you shares one sign-in, and when it stops working (the CLI can't
+refresh it), chats, workers and monitors all stop with it. Limeade checks it every 30 minutes with a one-word
+call, and notices at once when a chat or monitor fails on it. Then you get **one** notification, "Claude
+needs you to sign in again". Tapping it opens Settings › Agents › Claude Code: sign in with the link, paste
+the code back, and you're done. Afterwards the monitor runs that failed on it run again, and the Assistant is
+told, so it can pick up workers that stopped. Settings shows "Claude sign-in: OK / Needs you" at the top.
+
+Monitors can also run on a **background token**: a long-lived (one year) token from `claude setup-token`,
+set up or renewed on the same page with one sign-in. It only reaches the model (no Remote Control, no
+connectors), so chats and workers keep using the sign-in. With it, a scheduled run doesn't depend on the
+sign-in at all. Limeade keeps it in one private file (`~/.config/limeade/claude-token.env`,
+`CLAUDE_CODE_OAUTH_TOKEN=…`), which other apps on this computer can load too (for example as a systemd
+`EnvironmentFile`). It reminds you a month before the token runs out.
+
+Workers and other scripts can report a failure with `limeade claude-sign-in failed "<what>"`, which raises the
+same notification. `limeade claude-sign-in check` checks both now.
+
 ## Use it from your phone (optional)
 
 Limeade only listens on this computer. To reach it from your phone, use [Tailscale](https://tailscale.com):
@@ -125,6 +144,7 @@ Anyone on your tailnet can open it, so keep the tailnet to your own devices.
 limeade status | start | stop | restart | logs | open
 limeade phone <name>          let Limeade answer to another name (see above)
 limeade monitor …             recurring jobs (see Monitors)
+limeade claude-sign-in [check | failed "<what>"]   is Claude's sign-in working? (see Claude sign-in)
 limeade uninstall [--all]     remove the service and app (--all: chats, settings and keys too)
 ```
 
@@ -142,6 +162,8 @@ The `limeade` command is linked into `~/.local/bin`. If that isn't on your `PATH
 | `OLLAMA_URL` | `http://localhost:11434` | First value of Settings › Local models |
 | `TRUSTED_HOSTS` | none | Other names the page is reached by (`limeade phone`) |
 | `MACHINE_NAME` | `This computer` | How this computer is named in the app |
+| `CLAUDE_TOKEN_FILE` | `~/.config/limeade/claude-token.env` | Claude's background token (see Claude sign-in) |
+| `CLAUDE_CHECK_MS` | `1800000` | How often Claude's sign-in is checked; `0` turns the check off |
 
 Anything else in the file (an agent's API key, a custom provider's key) reaches the agents too. A value set in
 `limeade.env` wins over the same name in the environment the service or shell started with.

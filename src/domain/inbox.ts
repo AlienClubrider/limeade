@@ -5,11 +5,13 @@
 //  - question: an Assistant reply whose last paragraph ends with "?" (it asked him something).
 //  - look:     an Assistant reply that starts with the marker "[needs you]" (no question, but he should
 //              look: a preview to check, a decision to read). The marker is stripped from the text.
+//  - sign-in:  Claude's sign-in stopped working (the hub's own check, not the Assistant's). At most one.
 // How it goes away:
 //  - approvals: when answered (here or in a notification) or when their turn ends.
 //  - questions/looks: as soon as the user sends the Assistant anything after it, or when they dismiss it.
+//  - sign-in: when the sign-in works again.
 
-export type InboxKind = 'approval' | 'question' | 'look'
+export type InboxKind = 'approval' | 'question' | 'look' | 'sign-in'
 
 export interface InboxItem {
   id: string
@@ -27,7 +29,7 @@ export interface InboxItem {
 const NEEDS = /^\s*\[needs you\]\s*/i
 
 /** Strips the "[needs you]" marker; says whether the reply needs the user and how. */
-export function readNeeds(raw: string): { text: string; needs: Exclude<InboxKind, 'approval'> | null } {
+export function readNeeds(raw: string): { text: string; needs: 'question' | 'look' | null } {
   const marked = NEEDS.test(raw)
   const text = raw.replace(NEEDS, '').trim()
   if (endsWithQuestion(text)) return { text, needs: 'question' }

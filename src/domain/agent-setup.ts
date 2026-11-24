@@ -76,8 +76,12 @@ export function pickerNote(status: Pick<AgentStatus, 'installed' | 'signedIn'>):
 /** Terminal colours and link wrappers out of a CLI's output. */
 export function plainText(output: string): string {
   return output
-    .replace(/\u001b\]8;;([^\u0007\u001b]*)(?:\u0007|\u001b\\)/g, '') // OSC 8 hyperlink markers
-    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '')
+    .replace(/\u001b\[\d*G/g, ' ') // a terminal app's "move to column": a gap between words
+    .replace(/\u001b\]8;[^;\u0007\u001b]*;([^\u0007\u001b]*)(?:\u0007|\u001b\\)/g, '') // OSC 8 hyperlink markers (with or without an id)
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, '') // other OSC (a terminal's title, its queries)
+    .replace(/\u001b\[[0-9;?<>=!]*[A-Za-z~]/g, '')
+    .replace(/\u001b[78=>]/g, '')
+    .replace(/\r/g, '')
 }
 
 /** A sign-in the agent's CLI started: the page to open and, for a device sign-in, the code to type there. */
@@ -97,7 +101,8 @@ export interface SignInLink {
 export function signInLink(agent: Agent, output: string): SignInLink | null {
   const text = plainText(output)
   if (agent === 'claude') {
-    const m = /visit:\s*(https:\/\/\S+)\s/.exec(text)
+    // `auth login`: "visit: https://…"; `setup-token` (a terminal app): "Use the URL below to sign in" and the link.
+    const m = /visit:\s*(https:\/\/\S+)\s/.exec(text) ?? /URL below[^\n]*\n\s*(https:\/\/\S+)\s/.exec(text)
     return m ? { url: m[1]!, userCode: null, wantsCode: /paste code/i.test(text) } : null
   }
   const url = /(https:\/\/auth\.openai\.com\/\S+)/.exec(text)?.[1]

@@ -1,7 +1,7 @@
 // File-backed stores: chats (one JSON file each), notices, Claude versions, and the fleet records.
 // Everything is private to the user the hub runs as (0600).
 
-import { promises as fs, readFileSync, readdirSync } from 'node:fs'
+import { promises as fs, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Chat } from '../domain/chat.ts'
 import { parseEventLine, parseFleetMode, type FleetMode } from '../domain/fleet.ts'
@@ -126,6 +126,26 @@ export class JsonKeyValue implements KeyValue {
   async set(key: string, value: string) {
     this.data = { ...this.data, [key]: value }
     await writeAtomic(this.path, JSON.stringify(this.data))
+  }
+}
+
+/** One small JSON document (the Claude sign-in check's state), read and written whole. */
+export class JsonDoc<T> {
+  private path: string
+  constructor(path: string) {
+    this.path = path
+  }
+  read(): T | null {
+    try {
+      return JSON.parse(readFileSync(this.path, 'utf8')) as T
+    } catch {
+      return null
+    }
+  }
+  write(v: T): void {
+    const tmp = `${this.path}.tmp`
+    writeFileSync(tmp, JSON.stringify(v), { mode: 0o600 })
+    renameSync(tmp, this.path)
   }
 }
 

@@ -68,7 +68,7 @@ test('monitors page: in the drawer right below Workers, served, live, no chat bo
   assert.ok(isWebFile('/monitors.js'))
   assert.ok(isWebFile('/monitors.0123456789.js'))
   const app = read('app.js')
-  assert.match(app, /'agents', 'monitors'\]\) \{/) // listens for the hub's "monitors" event
+  assert.match(app, /'agents', 'monitors'[,\]]/) // listens for the hub's "monitors" event
   assert.match(app, /if \(name === 'monitors'\) return monitorsChanged\(\)/)
   assert.match(app, /'No monitors yet\. Ask the Assistant to create one\.'/)
   const section = app.slice(app.indexOf('// ---------- Monitors'), app.indexOf('// ---------- Toolbox'))

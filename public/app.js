@@ -395,7 +395,7 @@ function connect() {
     // EventSource retries on its own; if it gave up (e.g. Access signed out), try again later.
     if (es.readyState === EventSource.CLOSED) setTimeout(connect, 5000)
   }
-  for (const name of ['message', 'delta', 'live', 'step', 'busy', 'approval', 'approval_done', 'notice', 'workers', 'fleet_mode', 'inbox', 'chat', 'pull', 'local_models', 'agents', 'monitors']) {
+  for (const name of ['message', 'delta', 'live', 'step', 'busy', 'approval', 'approval_done', 'notice', 'workers', 'fleet_mode', 'inbox', 'chat', 'pull', 'local_models', 'agents', 'monitors', 'claude_health']) {
     es.addEventListener(name, (e) => {
       let data = {}
       try { data = JSON.parse(e.data) } catch {}
@@ -407,6 +407,7 @@ function connect() {
 function onEvent(name, d) {
   if (name === 'pull' || name === 'local_models') return onLocalEvent(name, d)
   if (name === 'agents') return onAgentsEvent()
+  if (name === 'claude_health') { S.claudeHealth = d; for (const refresh of agentWatchers) refresh(); return }
   if (name === 'notice' || name === 'workers') { loadWorkers(); return }
   if (name === 'monitors') return monitorsChanged()
   if (name === 'inbox') { setInbox(d.items || []); return }
@@ -2218,6 +2219,7 @@ function openSettings() {
     let fleetFixed = false
     let hubSettings = null
     let agentList = null
+    let health = S.claudeHealth || null
     const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone
     const isApple = /iPhone|iPad|iPod/.test(navigator.userAgent)
 
@@ -2288,6 +2290,7 @@ function openSettings() {
       const dark = document.documentElement.dataset.theme !== 'light'
       put(body,
         gettingStarted(),
+        claudeSignInLines(health),
         h('div', { class: 'section' }, 'Notify me when'),
         !push.supported
           ? h('div', { class: 'hint', style: 'padding-top:0' }, isApple && !standalone
@@ -2352,10 +2355,16 @@ function openSettings() {
       api('GET', '/fleet-mode').then((r) => { fleetMode = r.mode; fleetFixed = !!r.fixed }).catch(() => {}),
       api('GET', '/settings').then((r) => { hubSettings = r; S.hub = r }).catch(() => {}),
       api('GET', '/agents').then((r) => { agentList = r.agents }).catch(() => {}),
+      // Checks again in the background when the last check is over a minute old; the answer comes as an event.
+      api('GET', '/claude-health?check=1').then((r) => { health = S.claudeHealth = r }).catch(() => {}),
     ])
     paint()
     // Back from an agent's page (or an install finishing): its line here follows.
-    watchAgents(page, async () => { agentList = (await api('GET', '/agents').catch(() => null))?.agents ?? agentList; paint() })
+    watchAgents(page, async () => {
+      agentList = (await api('GET', '/agents').catch(() => null))?.agents ?? agentList
+      health = S.claudeHealth || health
+      paint()
+    })
   }, { fromList: true })
 }
 
@@ -2415,6 +2424,39 @@ function agentLine(v) {
   return `${ver}${SIGN_IN_HOW[st.how] || 'Signed in'}${st.account ? ` · ${st.account}` : ''}`
 }
 
+const HEALTH_WORD = { ok: 'OK', 'needs-you': 'Needs you', unknown: 'Not checked yet', none: 'Not set up' }
+
+/** "6 Sep 2027" */
+function longDate(day) {
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+/** The background token in a few words: OK until when, or what's wrong. */
+function tokenWord(t) {
+  if (t.state === 'none') return 'Not set up'
+  if (t.state === 'needs-you') return 'Needs renewing'
+  if (t.daysLeft !== null && t.daysLeft <= 30) return t.daysLeft <= 0 ? 'Ran out' : `Runs out ${longDate(t.endsOn)}`
+  return t.endsOn ? `OK until about ${longDate(t.endsOn)}` : HEALTH_WORD[t.state]
+}
+
+/** Settings: Claude's sign-in and background token, one line each; a tap opens Claude's page to fix them. */
+function claudeSignInLines(health) {
+  if (!health) return null
+  const line = (on, title, small) => h('button', { class: 'cardrow', onclick: () => openAgentSetup('claude') },
+    h('span', { class: `dot${on ? ' on' : on === false ? ' bad' : ''}` }),
+    h('span', { class: 'grow' }, h('div', {}, title), small ? h('div', { class: 'small' }, small) : null), svg(ICON.chevR))
+  const l = health.login
+  const t = health.token
+  const loginOn = l.state === 'ok' ? true : l.state === 'needs-you' ? false : null
+  const tokenOn = t.state === 'ok' && !(t.daysLeft !== null && t.daysLeft <= 30) ? true : t.state === 'none' ? null : t.state === 'unknown' ? null : false
+  return [
+    h('div', { class: 'section' }, 'Claude sign-in'),
+    h('div', { class: 'card' },
+      line(loginOn, `Claude sign-in: ${HEALTH_WORD[l.state]}`, l.state === 'needs-you' ? 'Tap to sign in again' : health.checking ? 'Checking…' : l.checkedAt ? `Checked ${ago(l.checkedAt)}` : null),
+      line(tokenOn, `Background token: ${tokenWord(t)}`, t.state === 'needs-you' || tokenOn === false ? 'Tap to renew it' : 'For monitors and other unattended runs')),
+  ]
+}
+
 function openAgentSetup(agentId) {
   openPage((page) => {
     // Wide windows: a whole page over Settings (back returns to it), not a panel half over it.
@@ -2427,6 +2469,7 @@ function openAgentSetup(agentId) {
     let error = null
     let code = ''
     let key = ''
+    let health = agentId === 'claude' ? S.claudeHealth || null : null
 
     async function act(fn) {
       if (busy) return
@@ -2483,18 +2526,41 @@ function openAgentSetup(agentId) {
 
     function signInCard() {
       const st = v.status
-      const run = v.signIn
+      const run = v.signIn?.how === 'token' ? null : v.signIn
+      const broken = health?.login.state === 'needs-you'
       const ways = agentId === 'claude'
-        ? [['subscription', 'Sign in with your Claude subscription', 'Pro or Max, through claude.ai'], ['console', 'Sign in with an Anthropic Console account', 'Billed by usage, for work accounts']]
+        ? [['subscription', broken ? 'Sign in to Claude again' : 'Sign in with your Claude subscription', 'Pro or Max, through claude.ai'], ['console', 'Sign in with an Anthropic Console account', 'Billed by usage, for work accounts']]
         : [['chatgpt', 'Sign in with ChatGPT', 'Your ChatGPT plan, with a one-time code']]
       const active = run && run.state !== 'done'
+      const checked = health && !broken && health.login.checkedAt ? ` · works, checked ${ago(health.login.checkedAt)}` : ''
       return [
         h('div', { class: 'section' }, 'Sign in'),
         h('div', { class: 'card' },
-          textRow(st.signedIn ? `Signed in with ${SIGN_IN_HOW[st.how] || 'an account'}` : 'Not signed in', st.signedIn ? st.account : st.installed ? null : `Install ${v.name} first.`),
+          broken && !active ? h('div', { class: 'cardrow' }, h('span', { class: 'dot bad' }), h('span', { class: 'grow' },
+            h('div', {}, 'Claude’s sign-in stopped working'),
+            h('div', { class: 'small' }, health.login.failed.length ? `Stopped: ${health.login.failed.join('; ')}` : 'Chats, workers and monitors can’t reach Claude until you sign in again.'))) : null,
+          textRow(st.signedIn ? `Signed in with ${SIGN_IN_HOW[st.how] || 'an account'}` : 'Not signed in', st.signedIn ? `${st.account || ''}${checked}`.replace(/^ · /, '') : st.installed ? null : `Install ${v.name} first.`),
           active ? flowRows(run) : ways.map(([how, title, small]) => actionRow(title, small, () => act(post('/sign-in', { how })), !st.installed)),
           active ? actionRow(run.state === 'failed' ? 'Start again' : 'Cancel', null, () => act(post('/sign-in', undefined, 'DELETE'))) : null),
         h('div', { class: 'hint' }, `The sign-in is ${v.name}'s own and stays where ${v.name} keeps it. Limeade never sees or copies it.`),
+      ]
+    }
+
+    /** Claude only: the long-lived token monitors and other unattended runs use (`claude setup-token`). */
+    function tokenCard() {
+      if (agentId !== 'claude' || !health || !v.status.installed) return null
+      const t = health.token
+      const run = v.signIn?.how === 'token' ? v.signIn : null
+      const active = run && run.state !== 'done'
+      const bad = t.state === 'needs-you' || (t.daysLeft !== null && t.daysLeft <= 30)
+      return [
+        h('div', { class: 'section' }, 'Background token'),
+        h('div', { class: 'card' },
+          h('div', { class: 'cardrow' }, h('span', { class: `dot${t.state === 'ok' && !bad ? ' on' : bad ? ' bad' : ''}` }),
+            h('span', { class: 'grow' }, h('div', {}, tokenWord(t)), t.failed.length ? h('div', { class: 'small' }, `Stopped: ${t.failed.join('; ')}`) : t.checkedAt && t.state === 'ok' ? h('div', { class: 'small' }, `Works, checked ${ago(t.checkedAt)}`) : null)),
+          active ? flowRows(run) : actionRow(t.state === 'none' ? 'Set up a background token' : 'Renew the background token', 'One sign-in, good for a year', () => act(post('/sign-in', { how: 'token' }))),
+          active ? actionRow(run.state === 'failed' ? 'Start again' : 'Cancel', null, () => act(post('/sign-in', undefined, 'DELETE'))) : null),
+        h('div', { class: 'hint' }, 'Monitors run on this token, so they keep working when the sign-in above needs renewing. It can only reach the model: no Remote Control, no connectors. Limeade keeps it in one private file that other apps on this computer can use too.'),
       ]
     }
 
@@ -2518,10 +2584,14 @@ function openAgentSetup(agentId) {
       const focused = document.activeElement && body.contains(document.activeElement) ? document.activeElement.type : null
       put(body,
         error ? h('div', { class: 'hint', style: 'color:var(--danger)' }, error) : null,
-        installCard(), signInCard(), keyCard())
+        installCard(), signInCard(), tokenCard(), keyCard())
       if (focused) body.querySelector(`input[type=${focused}]`)?.focus()
     }
-    const refresh = async () => { try { v = await api('GET', `/agents/${agentId}`) } catch (e) { error = e.message } paint() }
+    const refresh = async () => {
+      try { v = await api('GET', `/agents/${agentId}`) } catch (e) { error = e.message }
+      if (agentId === 'claude') health = S.claudeHealth = (await api('GET', '/claude-health').catch(() => null)) || health
+      paint()
+    }
     watchAgents(page, refresh)
     paint()
     refresh()
@@ -2570,7 +2640,7 @@ function openBell() {
   paintBellSheet()
 }
 
-const KIND_WORD = { approval: 'Approval', question: 'Question', look: 'Take a look' }
+const KIND_WORD = { approval: 'Approval', question: 'Question', look: 'Take a look', 'sign-in': 'Sign in' }
 
 function paintBellSheet() {
   const list = document.getElementById('bell-list')
@@ -2609,6 +2679,8 @@ async function dismissItem(item) {
  * asks it again at the bottom with context, so the user can answer right there.
  */
 async function openItem(item) {
+  // Claude's sign-in: its page, where one tap starts the sign-in. The item goes when the sign-in works again.
+  if (item.kind === 'sign-in') { closeNotifications(item); bellSheet?.close(); return openAgentSetup('claude') }
   setTab('assistant')
   closeNotifications(item)
   const box = $('#thread')

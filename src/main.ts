@@ -17,7 +17,7 @@ import { NpmInstall, quietCodex } from './adapters/agent-install.ts'
 import { CliSignIn } from './adapters/agent-sign-in.ts'
 import { KeyFile, Keychain } from './adapters/agent-keys.ts'
 import { Agents } from './app/agents.ts'
-import { ChatFiles, FleetDir, HubFleetMode, InboxFile, JsonKeyValue, NoticeFile } from './adapters/files.ts'
+import { ChatFiles, FleetDir, HubFleetMode, InboxFile, JsonDoc, JsonKeyValue, NoticeFile } from './adapters/files.ts'
 import { UploadFiles } from './adapters/upload-files.ts'
 import { HomeFolderTree } from './adapters/home-folders.ts'
 import { createHub } from './adapters/http.ts'
@@ -37,7 +37,7 @@ import { Bin, ClaudeShelf, CodexShelf } from './adapters/agent-shelves.ts'
 import { McpKeys } from './adapters/mcp-keys.ts'
 import { SharedConfig } from './app/shared-config.ts'
 import { ASSISTANT_ID } from './domain/chat.ts'
-import { DEFAULT_ASSISTANT_MODEL } from './domain/models.ts'
+import { DEFAULT_ASSISTANT_MODEL, parseModelId } from './domain/models.ts'
 import { displayFolder } from './domain/places.ts'
 import { launcherScript, renderSkill, shellWord } from './domain/bundled-skills.ts'
 import type { OllamaMachine } from './domain/local-models.ts'
@@ -46,6 +46,10 @@ import { HubWorkers } from './app/workers.ts'
 import { Monitors } from './app/monitors.ts'
 import { AgentMonitorTurns } from './app/monitor-turns.ts'
 import { MonitorFiles, ShellCheck } from './adapters/monitor-files.ts'
+import { ClaudeHealth } from './app/claude-health.ts'
+import { ClaudeProbe } from './adapters/claude-probe.ts'
+import { ClaudeTokenFile } from './adapters/claude-token-file.ts'
+import { isAuthFailure } from './domain/claude-health.ts'
 
 // limeade.env wins over a variable the service or shell already had (a stale provider key, say).
 applyEnvFiles(process.env, process.execArgv, (path) => {
@@ -214,10 +218,13 @@ const localWithTools = new ChosenEngine({ cli: localCli, acp: new ClaudeAcp({ ..
 // which it reaches on the Ollama machine directly. Shows in the agent picker when the Codex CLI is installed.
 const codexSetup = new AgentCli({ agent: 'codex', find: () => findAgentBin(codexBin, agentsPrefix), prefix: agentsPrefix, env: () => ({ ...process.env, ...codexEnv }) })
 const claudeSetup = new AgentCli({ agent: 'claude', find: () => findAgentBin(claudeBin, agentsPrefix), prefix: agentsPrefix, env: () => ({ ...process.env, ...claudeEnv }) })
+// Claude's long-lived token for background runs (monitors), in one private file other apps can load too.
+const claudeToken = new ClaudeTokenFile(cfg.claudeTokenFile)
 const agents = new Agents({
   setups: { claude: claudeSetup, codex: codexSetup },
   installer: new NpmInstall({ prefix: agentsPrefix }),
-  signIn: new CliSignIn(),
+  // A finished `claude setup-token`: its token goes to the token file before the sign-in counts as done.
+  signIn: new CliSignIn({ keep: async (_agent, how, output) => { if (how === 'token') claudeHealth.saveToken(output) } }),
   keys: process.platform === 'darwin' ? new Keychain() : new KeyFile(join(configDir, 'agent-keys.json')),
   keyEnv: { claude: [claudeEnv, claudeAcpEnv], codex: [codexEnv] },
   installed: (agent) => {
@@ -326,15 +333,37 @@ const monitors = new Monitors({
   turns: new AgentMonitorTurns({
     engines: { claude: claudeTurns, local: localTurns, codex: codexTurns, codexLocal },
     assistant: () => conversations.get(ASSISTANT_ID),
+    claudeEnv: () => claudeToken.env(),
   }),
   checks: new ShellCheck({ env: () => ({ ...process.env, ...fleetEnv, ...keys() }) }),
   news: fleet,
   resolveFolder: (path) => homeFolders.resolve(path),
   defaultFolder: workDir,
   hasAgent: async (id) => (await shared.hasAgent(id, 'claude')) || (await shared.instructions(id)) !== null,
+  authFailed: (m) => void claudeHealth.reported('background', { what: `Monitor "${m.name}"`, monitorId: m.id }),
+})
+
+// Claude's sign-in and token: checked now and then, and whenever something fails on them. When one stops
+// working, one bell item and notification (straight from the hub); when it's back, failed monitors run again.
+const claudeHealth = new ClaudeHealth({
+  probe: new ClaudeProbe({ bin: () => findAgentBin(claudeBin, agentsPrefix) ?? claudeBin, env: () => ({ ...process.env, ...claudeEnv }) }),
+  tokenFile: claudeToken,
+  store: new JsonDoc(join(stateDir, 'claude-health.json')),
+  bell: { signIn: (a) => conversations.signInAlert(a), remind: (t, b) => conversations.remind(t, b) },
+  retryMonitor: (id) => monitors.retry(id),
+  news: (text) => fleet.addEvent('claude-sign-in', 'reported', text),
+})
+// A chat turn on Claude's own models that failed on the login.
+conversations.on('turn_failed', ({ chatId, model, error }: { chatId: string; model: string; error: string }) => {
+  if (parseModelId(model)?.engine === 'claude' && isAuthFailure(error)) void claudeHealth.reported('login', { what: chatId === ASSISTANT_ID ? 'The Assistant' : 'A chat' })
+})
+// Signed in again (or a new token): check now, so the bell clears and failed runs go again.
+agents.on('signed-in', ({ agent }: { agent: string }) => {
+  if (agent === 'claude') void claudeHealth.check()
 })
 await monitors.load()
 monitors.start()
+if (cfg.claudeCheckMs > 0) claudeHealth.start(cfg.claudeCheckMs)
 
 // Limeade (browser): Cloudflare Access sign-in when the server has it, else the browser on this computer; Web Push.
 const access = cfg.access
@@ -382,6 +411,7 @@ createHub({
   oneShot: { claude: claudeCli, local: localModels },
   workers,
   monitors,
+  claudeHealth,
   shared,
   toolbox: toolboxKey ? { url: cfg.toolboxUrl, key: toolboxKey } : null,
   version,

@@ -18,6 +18,10 @@ export interface HubConfig {
   machineName: string
   agentsPrefix: string
   claudeBin: string
+  /** Claude's long-lived token for background runs (an EnvironmentFile other apps can load too). */
+  claudeTokenFile: string
+  /** How often the hub checks Claude's sign-in and token work; 0: never on its own. */
+  claudeCheckMs: number
   codexBin: string
   codexHome: string | null
   turnTimeoutMs: number
@@ -78,6 +82,8 @@ export function hubConfig(env: Env, home: string, appDir: string): HubConfig {
     machineName: env.MACHINE_NAME?.trim() || 'This computer',
     agentsPrefix,
     claudeBin: env.CLAUDE_BIN || 'claude',
+    claudeTokenFile: path(env.CLAUDE_TOKEN_FILE, join(configDir, 'claude-token.env')),
+    claudeCheckMs: Number(env.CLAUDE_CHECK_MS ?? 30 * 60_000),
     codexBin: env.CODEX_BIN || 'codex',
     codexHome: env.CODEX_HOME ? expandHome(env.CODEX_HOME, home) : null,
     turnTimeoutMs: Number(env.TURN_TIMEOUT_MS || 30 * 60_000),

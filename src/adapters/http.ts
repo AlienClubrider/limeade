@@ -25,6 +25,7 @@ import { codexGroup, parseModelId } from '../domain/models.ts'
 import { MAX_FILE_BYTES, isPreviewableImage, type StoredAttachment } from '../domain/attachments.ts'
 import type { MachineModels } from '../app/machine-models.ts'
 import type { Agents } from '../app/agents.ts'
+import type { ClaudeHealth } from '../app/claude-health.ts'
 import type { SharedConfig } from '../app/shared-config.ts'
 import type { Monitors } from '../app/monitors.ts'
 
@@ -51,6 +52,8 @@ export interface HttpOptions {
   workers: WorkerSource
   /** Recurring, unattended agent jobs (the Monitors page). */
   monitors?: Monitors | null
+  /** Whether Claude's sign-in and background token work (Settings, the bell). */
+  claudeHealth?: ClaudeHealth | null
   /** Folders a plain chat can work in (under home on this box). */
   folders?: HomeFolders | null
   /** Files under home that a reply links to (a diagram, a page), opened from the link. */
@@ -104,6 +107,7 @@ export function createHub(o: HttpOptions): Server {
   for (const ev of ['pull', 'local_models']) o.machineModels?.on(ev, (data) => broadcast(ev, data))
   o.agents?.on('agents', (data) => broadcast('agents', data))
   o.monitors?.on('monitors', (data) => broadcast('monitors', data))
+  o.claudeHealth?.on('claude_health', (data) => broadcast('claude_health', data))
 
   /** What Settings shows besides notifications: this computer's name, the Ollama address (when it's used directly). */
   function hubSettings() {
@@ -302,6 +306,26 @@ export function createHub(o: HttpOptions): Server {
         }
         if (p.length === 2 && p[1] === 'run' && m === 'POST') return json(res, 202, await mon.runNow(p[0]!))
         if (p.length === 3 && p[1] === 'runs' && m === 'GET') return json(res, 200, await mon.runLog(p[0]!, p[2]!))
+      }
+      // Claude's sign-in check (Settings; `limeade claude-sign-in` for workers and other apps).
+      if (o.claudeHealth && parts[0] === 'claude-health') {
+        const ch = o.claudeHealth
+        if (parts.length === 1 && m === 'GET') {
+          if (url.searchParams.get('check') === '1') void ch.check(true)
+          return json(res, 200, ch.view())
+        }
+        if (parts.length === 2 && parts[1] === 'check' && m === 'POST') {
+          await ch.check()
+          return json(res, 200, ch.view())
+        }
+        if (parts.length === 2 && parts[1] === 'failed' && m === 'POST') {
+          const b = await readJson(req, 4096)
+          const what = typeof b.what === 'string' ? b.what.replace(/\s+/g, ' ').trim().slice(0, 160) : ''
+          if (!what) throw new HubError(400, 'Say what failed')
+          const cred = b.credential === 'token' || b.credential === 'login' ? b.credential : 'login'
+          await ch.reported(cred, { what })
+          return json(res, 200, ch.view())
+        }
       }
       if (parts[0] === 'push' && o.push) return await pushRoute(parts[1] ?? '', m ?? '', req, res)
       if (m === 'GET' && route === '/stream') return liveStream(url, res)

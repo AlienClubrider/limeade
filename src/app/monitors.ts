@@ -11,6 +11,7 @@ import {
 } from '../domain/monitors.ts'
 import type { CheckRunner, EngineEvent, FleetRecords, MonitorStore, MonitorTurn, MonitorTurns, TurnResult } from '../ports.ts'
 import { HubError } from './conversations.ts'
+import { isAuthFailure } from '../domain/claude-health.ts'
 
 interface Deps {
   store: MonitorStore
@@ -23,6 +24,8 @@ interface Deps {
   defaultFolder: string
   /** Whether an agent ("apologist") exists to run as. */
   hasAgent?: (name: string) => Promise<boolean>
+  /** A run failed because Claude's credential didn't work (the sign-in check takes it from here). */
+  authFailed?: (m: { id: string; name: string }) => void
   now?: () => number
   log?: (line: string) => void
 }
@@ -151,7 +154,7 @@ export class Monitors extends EventEmitter {
   }
 
   /** Starts a run, or notes a skipped one when the last is still going. */
-  private async fire(m: Monitor, reason: 'schedule' | 'check' | 'manual', context = ''): Promise<MonitorRun> {
+  private async fire(m: Monitor, reason: NonNullable<MonitorRun['reason']>, context = ''): Promise<MonitorRun> {
     const going = this.live.get(m.id)
     if (going) {
       const since = m.runs.find((r) => r.id === going.runId)?.startedAt
@@ -201,6 +204,8 @@ export class Monitors extends EventEmitter {
       const outcome = runOutcome(result.text || live.log, result.error, live.askedApproval)
       const log = result.error ? `${live.log}\n\n${result.error}`.trim() : live.log
       if (this.live.get(m.id) === live) this.live.delete(m.id)
+      // Only the turn's error, never what the run itself wrote (a monitor may well talk about sign-ins).
+      if (result.error && isAuthFailure(result.error)) this.d.authFailed?.({ id: m.id, name: m.name })
       await this.finish(m, run, outcome, log)
     })().catch((err) => this.say(`monitor ${m.id}: ${(err as Error).message}`))
   }
@@ -335,6 +340,13 @@ export class Monitors extends EventEmitter {
     const m = this.find(id)
     if (this.live.has(id)) throw new HubError(409, 'It is running already')
     return view(await this.fire(m, 'manual'))
+  }
+
+  /** Runs it once more because Claude's sign-in is back (its last run failed on it); nothing if it's running or gone. */
+  async retry(id: string): Promise<void> {
+    const m = this.all.get(id)
+    if (!m || this.live.has(id)) return
+    await this.fire(m, 'sign-in')
   }
 
   // ---------- checking what was sent ----------

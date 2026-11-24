@@ -24,7 +24,7 @@ function fail(msg: string, code = 2): never {
   process.exit(code)
 }
 
-async function hub(method: string, path: string, body?: unknown): Promise<any> {
+export async function hub(method: string, path: string, body?: unknown): Promise<any> {
   const base = env.LIMEADE_HUB || 'http://127.0.0.1:8797'
   const keyFile = join(env.LIMEADE_CONFIG || join(homedir(), '.config/limeade'), 'key')
   let key = ''

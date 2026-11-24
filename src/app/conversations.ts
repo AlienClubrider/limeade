@@ -158,6 +158,7 @@ interface Deps {
  *  'busy'     { chatId, busy }
  *  'approval' PendingApproval
  *  'approval_done' { id, decision }             answered, or 'expired' when its turn ended
+ *  'turn_failed' { chatId, model, error }     a turn ended with an error (the sign-in check looks for auth errors)
  *  'notice'   Notice
  *  'chat'     ChatSummary                       created, renamed or deleted (deleted: true)
  *  'inbox'    { items: InboxItem[] }            the bell changed
@@ -423,7 +424,7 @@ export class Conversations extends EventEmitter {
       this.emit('message', { chatId: id, message })
     }
     // He answered: open questions and "look at this" items are done.
-    if (id === ASSISTANT_ID) await this.clearInbox((i) => i.kind !== 'approval')
+    if (id === ASSISTANT_ID) await this.clearInbox((i) => i.kind === 'question' || i.kind === 'look')
     return message
   }
 
@@ -500,6 +501,29 @@ export class Conversations extends EventEmitter {
     const item = await this.addInbox({ kind: 'look', title: 'Test from Limeade', body: 'The bell and notifications work. Swipe this away.' })
     await this.notify({ kind: 'needs', title: 'Please look', body: 'Test from Limeade', chatId: ASSISTANT_ID, inboxId: item?.id })
     return item
+  }
+
+  /**
+   * Claude's sign-in needs the user (or not, with null). One bell item, changed in place as things fail;
+   * a notification only when it first appears.
+   */
+  async signInAlert(a: { title: string; body: string } | null): Promise<void> {
+    const open = this.d.inbox?.all().find((i) => i.kind === 'sign-in')
+    if (!a) return open ? this.clearInbox((i) => i.kind === 'sign-in') : undefined
+    if (open) {
+      if (open.title === a.title && open.body === a.body) return
+      await this.d.inbox!.put({ ...open, ...a })
+      this.emit('inbox', { items: this.inboxItems() })
+      return
+    }
+    const item = await this.addInbox({ kind: 'sign-in', ...a })
+    await this.notify({ kind: 'needs', title: a.title, body: a.body, chatId: ASSISTANT_ID, inboxId: item?.id })
+  }
+
+  /** A one-off "take a look" from the hub itself (not tied to a message), with a notification. */
+  async remind(title: string, body: string): Promise<void> {
+    const item = await this.addInbox({ kind: 'look', title, body })
+    await this.notify({ kind: 'needs', title, body, chatId: ASSISTANT_ID, inboxId: item?.id })
   }
 
   private async addInbox(item: Omit<InboxItem, 'id' | 'at'>): Promise<InboxItem | null> {
@@ -793,6 +817,7 @@ export class Conversations extends EventEmitter {
     const { needs } = read
     const text = dropTags(read.text)
     if (result.error && !text && !stopped) {
+      this.emit('turn_failed', { chatId: id, model: t.model, error: result.error })
       await this.addTurnMessage(id, { ...this.newMessage('error', source, `That didn't work: ${result.error}`), id: replyId, steps })
       return
     }
@@ -808,6 +833,7 @@ export class Conversations extends EventEmitter {
     }
     await this.addTurnMessage(id, reply)
     if (chat.kind === 'chat' && !chat.renamed && text && !stopped && !result.error) void this.autoTitle(id, reply.id)
+    if (result.error && !stopped) this.emit('turn_failed', { chatId: id, model: t.model, error: result.error })
     // A failure is always said out loud in the thread, even after partial text.
     if (result.error && !stopped) {
       await this.addTurnMessage(id, this.newMessage('error', source, `That didn't finish: ${result.error}`))

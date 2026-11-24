@@ -22,15 +22,19 @@ export interface AgentView {
   keySaved: boolean
 }
 
-export type SignInHow = 'subscription' | 'console' | 'chatgpt'
+/** token: Claude's long-lived token for background runs (`claude setup-token`), next to its own sign-in. */
+export type SignInHow = 'subscription' | 'console' | 'chatgpt' | 'token'
 
-const HOWS: Record<Agent, readonly SignInHow[]> = { claude: ['subscription', 'console'], codex: ['chatgpt'] }
+const HOWS: Record<Agent, readonly SignInHow[]> = { claude: ['subscription', 'console', 'token'], codex: ['chatgpt'] }
 
 export function keyName(agent: Agent): string {
   return `${agent}-api-key`
 }
 
-/** Emits 'agents' when something the page shows changed (an install or a sign-in ended, a key came or went). */
+/**
+ * Emits 'agents' when something the page shows changed (an install or a sign-in ended, a key came or went),
+ * and 'signed-in' { agent, how } when a sign-in finished well.
+ */
 export class Agents extends EventEmitter {
   private o: {
     setups: Record<Agent, AgentSetup>
@@ -99,6 +103,7 @@ export class Agents extends EventEmitter {
     await this.o.signIn.start(a, how as SignInHow, status.path, () => {
       this.o.setups[a].forget?.()
       this.emit('agents', { agent: a })
+      if (this.o.signIn.run(a)?.state === 'done') this.emit('signed-in', { agent: a, how })
     })
     return this.view(a)
   }

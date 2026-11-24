@@ -262,7 +262,7 @@ export interface InstallRun {
 
 /** The agent's own sign-in, run through its CLI: a link to open, maybe a code to paste back. */
 export interface AgentSignIn {
-  start(agent: import('./domain/models.ts').Agent, how: 'subscription' | 'console' | 'chatgpt', bin: string, done: () => void): Promise<SignInRun>
+  start(agent: import('./domain/models.ts').Agent, how: 'subscription' | 'console' | 'chatgpt' | 'token', bin: string, done: () => void): Promise<SignInRun>
   sendCode(agent: import('./domain/models.ts').Agent, code: string): Promise<SignInRun>
   run(agent: import('./domain/models.ts').Agent): SignInRun | null
   cancel(agent: import('./domain/models.ts').Agent): void
@@ -272,6 +272,8 @@ export interface SignInRun {
   state: 'starting' | 'waiting' | 'checking' | 'done' | 'failed'
   link: import('./domain/agent-setup.ts').SignInLink | null
   error: string | null
+  /** Which sign-in: Claude's long-lived token ('token') or the agent's own. */
+  how?: 'subscription' | 'console' | 'chatgpt' | 'token'
 }
 
 /** Secrets Limeade keeps itself (an agent's API key): the macOS Keychain, or a 0600 file elsewhere. */

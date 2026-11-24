@@ -116,7 +116,7 @@ function heldTurns() {
   }
 }
 
-function setup(o: { checkOutput?: () => string; agents?: string[]; store?: ReturnType<typeof memoryStore>; turns?: ReturnType<typeof heldTurns> } = {}) {
+function setup(o: { checkOutput?: () => string; agents?: string[]; store?: ReturnType<typeof memoryStore>; turns?: ReturnType<typeof heldTurns>; authFailed?: (m: { id: string; name: string }) => void } = {}) {
   let now = new Date(2026, 10, 20, 9, 0).getTime()
   const store = o.store ?? memoryStore()
   const turns = o.turns ?? heldTurns()
@@ -131,6 +131,7 @@ function setup(o: { checkOutput?: () => string; agents?: string[]; store?: Retur
     resolveFolder: async (p) => (p.startsWith('/work') ? p : null),
     defaultFolder: '/work/dev',
     hasAgent: async (a) => (o.agents ?? ['apologist']).includes(a),
+    ...(o.authFailed ? { authFailed: o.authFailed } : {}),
     now: () => now,
     log: () => {},
   })
@@ -352,6 +353,28 @@ test('deleting stops its run and forgets it', async () => {
   await assert.rejects(monitors.remove('m'), (e: any) => e.status === 404)
 })
 
+test("a run that fails on Claude's sign-in is reported; after the sign-in it runs once more", async () => {
+  const failedOn: string[] = []
+  const { monitors, turns } = setup({ authFailed: (m) => failedOn.push(m.id) })
+  await monitors.create({ name: 'Prep', instructions: 'go', trigger: 'daily 05:00' })
+  await monitors.runNow('prep')
+  turns.started[0]!.end({ text: '', sessionId: null, error: 'Failed to authenticate: OAuth session expired and could not be refreshed' })
+  await flush()
+  await flush()
+  assert.deepEqual(failedOn, ['prep'])
+  // Other failures aren't the sign-in's, even when the run's own words mention one.
+  await monitors.runNow('prep')
+  turns.started[1]!.end({ text: 'Checked the bank: Not logged in, Please run /login', sessionId: null, error: 'API Error: 529 Overloaded' })
+  await flush()
+  await flush()
+  assert.deepEqual(failedOn, ['prep'])
+  await monitors.retry('prep')
+  assert.equal(monitors.get('prep').lastRun!.reason, 'sign-in')
+  await monitors.retry('prep') // running already: nothing
+  await monitors.retry('gone')
+  assert.equal(turns.started.length, 3)
+})
+
 // ---------- the turn adapter ----------
 
 test('runs go to the engine the Assistant is on, in auto mode, and can be picked up again', async () => {
@@ -378,6 +401,24 @@ test('runs go to the engine the Assistant is on, in auto mode, and can be picked
   assert.equal(await turns.reattach('junk', t), null)
   assistant = { agent: 'codex' as any, model: 'claude:opus', effort: 'high' }
   await assert.rejects(turns.run(t), /can't run/)
+})
+
+test("runs on Claude's own models get the background token; local models never do", async () => {
+  const seen: TurnRequest[] = []
+  const engine = { run: async (r: TurnRequest) => { seen.push(r); return { text: 'ok', sessionId: null } } }
+  let assistant: { agent: 'claude'; model: string; effort: 'high' } = { agent: 'claude', model: 'claude:opus', effort: 'high' }
+  let env: Record<string, string> = { CLAUDE_CODE_OAUTH_TOKEN: 't' }
+  const turns = new AgentMonitorTurns({ engines: { claude: engine, local: engine }, assistant: () => assistant, claudeEnv: () => env })
+  const t: MonitorTurn = { prompt: 'p', cwd: '/w', agent: null, note: 'n', signal: new AbortController().signal, onEvent: () => {} }
+  await turns.run(t)
+  assert.deepEqual(seen[0]!.env, { CLAUDE_CODE_OAUTH_TOKEN: 't' })
+  env = {}
+  await turns.run(t)
+  assert.equal(seen[1]!.env, undefined)
+  env = { CLAUDE_CODE_OAUTH_TOKEN: 't' }
+  assistant = { agent: 'claude', model: 'local:llama3.1-8b', effort: 'high' }
+  await turns.run(t)
+  assert.equal(seen[2]!.env, undefined)
 })
 
 // ---------- files and checks ----------

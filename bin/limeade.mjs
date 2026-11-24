@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Installs Limeade on this computer and runs it as a background service, then manages it.
-//   npx -y github:AlienClubrider/limeade            install or update, start, open http://localhost:8797
+//   npx -y github:<owner>/limeade            install or update, start, open http://localhost:8797
 //   limeade status | start | stop | restart | logs | open | phone <name> | uninstall [--all]
 //   limeade monitor …                        the Assistant's recurring jobs (src/cli/monitor.ts)
+//   limeade claude-sign-in [check | failed …] is Claude's sign-in working? (src/cli/claude-sign-in.ts)
 // Plain JavaScript on purpose: npx runs this from node_modules, where Node won't run TypeScript. The app
 // itself is copied out to its own folder and runs from there. Only Node 24 (with its npm) is needed.
 
@@ -332,12 +333,14 @@ switch (cmd) {
     uninstall(rest.includes('--all'))
     break
   case 'monitor':
-  case 'monitors': {
+  case 'monitors':
+  case 'claude-sign-in': {
     // Node runs the TypeScript from the installed copy (or a checkout), not from npx's node_modules.
     const env = { ...process.env, LIMEADE_HUB: process.env.LIMEADE_HUB || `http://127.0.0.1:${port()}` }
-    const r = spawnSync(process.execPath, [join(HERE, 'src', 'cli', 'monitor.ts'), ...rest], { stdio: 'inherit', env })
+    const file = cmd === 'claude-sign-in' ? 'claude-sign-in.ts' : 'monitor.ts'
+    const r = spawnSync(process.execPath, [join(HERE, 'src', 'cli', file), ...rest], { stdio: 'inherit', env })
     process.exit(r.status ?? 1)
   }
   default:
-    say('limeade [install] [--port N] | status | start | stop | restart | logs | open | phone <name> | uninstall [--all] | monitor …')
+    say('limeade [install] [--port N] | status | start | stop | restart | logs | open | phone <name> | uninstall [--all] | monitor … | claude-sign-in …')
 }

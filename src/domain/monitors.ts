@@ -23,8 +23,8 @@ export interface MonitorRun {
   startedAt: string
   endedAt: string | null
   summary: string
-  /** What started it: its schedule, its check, or "run now". */
-  reason?: 'schedule' | 'check' | 'manual'
+  /** What started it: its schedule, its check, "run now", or Claude's sign-in coming back after it failed. */
+  reason?: 'schedule' | 'check' | 'manual' | 'sign-in'
   /** A run still going in a process that outlives the hub: how to pick it up after a restart. */
   handle?: string
 }
